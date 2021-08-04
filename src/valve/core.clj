@@ -1,7 +1,9 @@
 (ns valve.core
+  (:require [valve.cli-handler :as cli-handler])
   (:gen-class))
 
 (defn -main
-  "I don't do a whole lot ... yet."
   [& args]
-  (println "Hello, World!"))
+  ;; Handle command-line options:
+  (cli-handler/handle-cli-opts args))
+
