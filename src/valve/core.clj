@@ -5,5 +5,6 @@
 (defn -main
   [& args]
   ;; Handle command-line options:
-  (cli-handler/handle-cli-opts args))
+  (let [status (cli-handler/handle-cli-opts args)]
+    (System/exit status)))
 

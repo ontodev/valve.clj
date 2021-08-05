@@ -1,11 +1,14 @@
 (ns valve.cli-handler
   (:require [clojure.java.io :as io]
             [clojure.string :as string]
-            [clojure.tools.cli :refer [parse-opts]]))
+            [clojure.tools.cli :refer [parse-opts]]
+            [valve.validate :refer [validate]]))
 
 (def version
   (str "VALVE Version "
        (->> "project.clj" slurp read-string (drop 2) (cons :version) (apply hash-map) :version)))
+
+(def return-status {:success 0 :error 1})
 
 (def cli-options
   [["-h" "--help"
@@ -27,52 +30,53 @@
   [args]
   (let [{:keys [options arguments errors summary]} (parse-opts args cli-options)
         usage (str "Usage: valve -o OUTPUT [OPTIONS] PATH [PATH ...]\n\nOptions:\n" summary)]
-    (cond errors (binding [*out* *err*]
-                   (doseq [error errors]
-                     (println error))
-                   (println usage)
-                   (System/exit 1))
+    (cond errors
+          (binding [*out* *err*]
+            (doseq [error errors]
+              (println error))
+            (println usage)
+            (:error return-status))
 
           (:help options)
           (do (println usage)
-              (System/exit 0))
+              (:success return-status))
 
           (:version options)
           (do (println version)
-              (System/exit 0))
+              (:success return-status))
 
           (nil? (:output options))
           (binding [*out* *err*]
             (println "You must specify an output file.")
             (println usage)
-            (System/exit 1))
+            (:error return-status))
 
           (and (-> (:output options) (string/lower-case) (string/ends-with? ".csv") (not))
                (-> (:output options) (string/lower-case) (string/ends-with? ".tsv") (not)))
           (binding [*out* *err*]
             (println "The output parameter must end with either .csv or .tsv.")
             (println usage)
-            (System/exit 1))
+            (:error return-status))
 
           (-> (:output options) (io/file) (.isDirectory))
           (binding [*out* *err*]
             (println (:output options) "is a directory. You must specify a CSV or TSV file.")
             (println usage)
-            (System/exit 1))
+            (:error return-status))
 
           (-> (:output options) (io/file) (.getParent) (io/file) (.canWrite) (not))
           (binding [*out* *err*]
             (println (-> (:output options) (io/file) (.getParent))
                      "does not exist or is not writable.")
             (println usage)
-            (System/exit 1))
+            (:error return-status))
 
           (and (-> (:output options) (io/file) (.exists))
                (-> (:output options) (io/file) (.canWrite) (not)))
           (binding [*out* *err*]
             (println (:output options) "is not writable.")
             (println usage)
-            (System/exit 1))
+            (:error return-status))
 
           (and (:distinct options)
                (or (-> (:distinct options) (io/file) (.isDirectory) (not))
@@ -80,18 +84,24 @@
           (binding [*out* *err*]
             (println (:distinct options) "is either not a directory or is not writable.")
             (println usage)
-            (System/exit 1))
+            (:error return-status))
 
           (empty? arguments)
           (binding [*out* *err*]
             (println "At least one path must be specified.")
             (println usage)
-            (System/exit 1))
+            (:error return-status))
 
           (->> arguments (some #(-> % (io/file) (.canRead) (not))))
           (binding [*out* *err*]
             (println "Some of the specified paths are not readable.")
             (println usage)
-            (System/exit 1)))
+            (:error return-status))
 
-    (System/exit 0)))
+          :else
+          (let [messages (validate arguments (:distinct options) (:row-start options))]
+            (if-not (empty? messages)
+              (do
+                ;; TODO: implement `write-messages`
+                (:error return-status))
+              (:success return-status))))))
