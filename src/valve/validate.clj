@@ -115,7 +115,7 @@
   (when-not (contains? details "validate")
     (throw (Exception. (str "Details of " func-name " must include a 'validate' key"))))
 
-  (let [full-name (str "validate-" func-name)
+  (let [full-name (str "valve.validate/validate-" func-name)
         ;; See https://stackoverflow.com/a/1748508/8599709
         params (->> full-name
                     (symbol)
