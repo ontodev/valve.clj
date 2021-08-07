@@ -2,6 +2,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as string]
             [clojure.tools.cli :refer [parse-opts]]
+            [valve.log :as log]
             [valve.validate :refer [validate]]))
 
 (def version
@@ -64,6 +65,8 @@
             (println usage)
             (:error return-status))
 
+          ;; TODO: If the path is not prefixed with './' the following line of code will cause
+          ;; a null pointer exception:
           (-> (:output options) (io/file) (.getParent) (io/file) (.canWrite) (not))
           (binding [*out* *err*]
             (println (-> (:output options) (io/file) (.getParent))
@@ -99,9 +102,16 @@
             (:error return-status))
 
           :else
-          (let [messages (validate arguments (:distinct options) (:row-start options))]
-            (if-not (empty? messages)
-              (do
-                ;; TODO: implement `write-messages`
-                (:error return-status))
-              (:success return-status))))))
+          (try
+            (let [messages (validate arguments (:distinct options) (:row-start options))]
+              (if-not (empty? messages)
+                (do
+                  ;; TODO: implement `write-messages`
+                  (:error return-status))
+                (:success return-status)))
+            (catch Exception e
+              (binding [*out* *err*]
+                (println (.getMessage e))
+                (when (= log/config-level log/DEBUG)
+                  (.printStackTrace e)))
+              (:error return-status))))))

@@ -1,6 +1,12 @@
 (ns valve.log)
 
-(def log-levels {:debug 0 :info 1 :warn 2 :warning 2 :error 3 :critical 4})
+(def DEBUG 0)
+(def INFO 1)
+(def WARN 2)
+(def ERROR 3)
+(def CRITICAL 4)
+
+(def log-levels {:debug DEBUG :info INFO :warn WARN :warning WARN :error ERROR :critical CRITICAL})
 
 ;; TODO: Make this configurable
 (def config-level (:debug log-levels))
