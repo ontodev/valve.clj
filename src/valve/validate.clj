@@ -1,5 +1,6 @@
 (ns valve.validate
-  (:require [clojure.java.io :as io]
+  (:require [clojure.data.csv :as csv]
+            [clojure.java.io :as io]
             ;; TODO: pprint is used for debugging during dev. Remove this dependency later.
             [clojure.pprint :refer [pprint]]
             [clojure.string :as string]
@@ -131,7 +132,30 @@
                  (throw (Exception. (str "'" qualified-name "' argument 6 must be 'value'"))))
 
                ;; After validating the given custom function's details, return them unchanged:
-               [func-name details]))]
+               [func-name details]))
+
+           (get-table-details [fixed-paths]
+             (->> fixed-paths
+                  (map (fn [path]
+                         (with-open [reader (io/reader path)]
+                           (let [table-name (-> path (io/file) (.getName)
+                                                (string/replace #"\.(c|t)sv$" ""))
+                                 sep (if (string/ends-with? path ".csv")
+                                       \,
+                                       \tab)
+                                 [header & data] (doall (csv/read-csv reader :separator sep))]
+                             {table-name
+                              {:path path
+                               :fields header
+                               :rows (if (some #(= table-name %) ["field" "rule" "datatype"])
+                                       (->> data (map #(zipmap header %)))
+                                       (->> row-start (- 2) (#(drop % data))
+                                            (map #(zipmap header %))))}}))))))
+
+           (check-for-duplicates [table-details]
+             ;; TODO: Implement this function to verify that no table appears more than once
+             ;; in the given list of table details.
+             table-details)]
 
      (let [;; Register functions:
            functions (->> custom-functions
@@ -150,12 +174,13 @@
                                      (list path)
                                      (->> path (io/file) (.list)
                                           (filter #(or (string/ends-with? % ".csv")
-                                                       (string/ends-with? % ".tsv")))))))
+                                                       (string/ends-with? % ".tsv")))
+                                          (map #(str path "/" %))))))
                             (apply concat))
 
-           ;; TODO: Load all tables, error on duplicates
-           table-details (do)
-           config (do)
+           ;; Load all tables, error on duplicates
+           table-details (-> (get-table-details fixed-paths) (check-for-duplicates))
+           config {:functions functions :table-details table-details :row-start row-start}
 
            ;; TODO: Load datatype, field, and rule - stop process on any problems
            setup-messages (do)
@@ -164,7 +189,7 @@
            ;; TODO: Run validation
            messages (do)]
 
-       (pprint fixed-paths)
+       (pprint config)
 
        ;; TODO: Return messages, logging an error if the list is not empty.
        (or messages []))))
