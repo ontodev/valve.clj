@@ -19,10 +19,16 @@
                "check" ["expression+"]
                "validate" validate-custom-2}})
 
-(deftest test-validate
+(def ^:private
+  paths ["test/resources/input1.csv" "test/resources/input2"])
+
+(deftest test-validate-custom-funcs
   (testing "Validate test"
-    (is (= [] (validate ["output.csv"] custom-functions "valve.core-test" "distinct" 2)))))
+    (is (= [] (validate paths custom-functions "valve.core-test" "test/resources/distinct" 2)))))
 
 (deftest test-end-to-end
   (testing "End-to-end test"
-    (is (= 0 (handle-cli-opts ["-o" "./output.csv" "-d" "./distinct/" "./input1.csv"])))))
+    (-> ["-o" "output.csv" "-d" "test/resources/distinct"]
+        (concat paths)
+        (handle-cli-opts)
+        (#(is (= 0 %))))))

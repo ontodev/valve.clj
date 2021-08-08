@@ -1,6 +1,8 @@
 (ns valve.validate
-  (:require ;; TODO: pprint is used for debugging during dev. Remove this dependency later.
+  (:require [clojure.java.io :as io]
+            ;; TODO: pprint is used for debugging during dev. Remove this dependency later.
             [clojure.pprint :refer [pprint]]
+            [clojure.string :as string]
             [valve.log :as log]))
 
 ;; Builtin validate functions
@@ -139,18 +141,30 @@
                           (apply hash-map)
                           (merge default-functions))
 
-           ;; TODO: Check for directories and list their entire contents
-           fixed-paths (do)
+           ;; Look in the given paths for .tsv and .csv files and collect them into a list. Note
+           ;; that we do not need to verify that non-directory paths end in .csv or .tsv, since
+           ;; we assume this has already been checked by the calling function.
+           fixed-paths (->> paths
+                            (map (fn [path]
+                                   (if-not (-> path (io/file) (.isDirectory))
+                                     (list path)
+                                     (->> path (io/file) (.list)
+                                          (filter #(or (string/ends-with? % ".csv")
+                                                       (string/ends-with? % ".tsv")))))))
+                            (apply concat))
+
            ;; TODO: Load all tables, error on duplicates
            table-details (do)
            config (do)
+
            ;; TODO: Load datatype, field, and rule - stop process on any problems
            setup-messages (do)
            kill-messages (do)
+
            ;; TODO: Run validation
            messages (do)]
 
-       (clojure.pprint/pprint functions)
+       (pprint fixed-paths)
 
        ;; TODO: Return messages, logging an error if the list is not empty.
        (or messages []))))

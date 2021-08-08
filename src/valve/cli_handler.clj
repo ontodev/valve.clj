@@ -59,17 +59,19 @@
             (println usage)
             (:error return-status))
 
+          ;; This is an edge-case, but it is conceivable that a path ending in .csv or .tsv
+          ;; could actually be a directory, so we check for this here:
           (-> (:output options) (io/file) (.isDirectory))
           (binding [*out* *err*]
             (println (:output options) "is a directory. You must specify a CSV or TSV file.")
             (println usage)
             (:error return-status))
 
-          ;; TODO: If the path is not prefixed with './' the following line of code will cause
-          ;; a null pointer exception:
-          (-> (:output options) (io/file) (.getParent) (io/file) (.canWrite) (not))
+          ;; Check to make sure the parent directory ("." if the path includes none) exists and is
+          ;; writable:
+          (-> (:output options) (io/file) (.getParent) (#(or % ".")) (io/file) (.canWrite) (not))
           (binding [*out* *err*]
-            (println (-> (:output options) (io/file) (.getParent))
+            (println (-> (:output options) (io/file) (.getParent) (#(or % ".")))
                      "does not exist or is not writable.")
             (println usage)
             (:error return-status))
