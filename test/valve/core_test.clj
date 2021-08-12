@@ -12,15 +12,15 @@
   {:abba "gabba"})
 
 (def ^:private custom-functions
-  {"custom-1" {"usage" "any(expression+)"
-               "check" ["expression+"]
-               "validate" validate-custom-1}
-   "custom-2" {"usage" "any(expression+)"
-               "check" ["expression+"]
-               "validate" validate-custom-2}})
+  {:custom-1 {"usage" "any(expression+)"
+              "check" ["expression+"]
+              "validate" validate-custom-1}
+   :custom-2 {"usage" "any(expression+)"
+              "check" ["expression+"]
+              "validate" validate-custom-2}})
 
 (def ^:private
-  paths ["test/resources/input1.csv" "test/resources/input2"])
+  paths ["test/resources/inputs"])
 
 (deftest test-validate-custom-funcs
   (testing "Validate test"
