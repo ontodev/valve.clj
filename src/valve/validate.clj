@@ -183,23 +183,40 @@
                                  sep (if (string/ends-with? path ".csv")
                                        \,
                                        \tab)
-                                 [header & data] (doall (csv/read-csv reader :separator sep))]
+                                 [header & data] (doall (csv/read-csv reader :separator sep))
+                                 header (->> header (map keyword))
+                                 data (if (some #(= table-name %) ["field" "rule" "datatype"])
+                                        data
+                                        (-> (- row-start 2) (drop data)))]
+
                              {table-name
                               {:path path
                                :fields (->> header (map keyword))
-                               :rows (if (some #(= table-name %) ["field" "rule" "datatype"])
-                                       (->> data (map #(zipmap header %)))
-                                       (->> row-start (- 2) (#(drop % data))
-                                            (map #(zipmap header %))))}}))))
+                               ;; For error reporting purposes we need the order of the headers to
+                               ;; be preserved in the generated rows. Zipmap, the simplest way of
+                               ;; associating header fields with each row column, does not preserve
+                               ;; order, so we need to use the following more complicated method
+                               ;; involving array-map instead:
+                               :rows (->> data
+                                          (map (fn [row]
+                                                 (->> row
+                                                      (map-indexed (fn [idx column]
+                                                                     (array-map (nth header idx)
+                                                                                (nth row idx))))
+                                                      (apply merge)))))}}))))
                   (apply merge)
                   (keywordize-keys)))
 
            (check-rows [config spec table rows]
-             (->> rows
-                  ;; TODO: Generate proper error messages:
-                  (map #(when-not (s/valid? spec %)
-                          {:table table :level "ERROR" :message (s/explain-str spec %)}))
-                  (remove nil?)))
+             (let [errors (->> rows
+                               (map-indexed (fn [idx arg]
+                                              (when-not (s/valid? spec arg)
+                                                (merge (s/explain-data spec arg)
+                                                       {:row idx}))))
+                               (remove nil?))]
+               ;;(pprint errors)
+
+               []))
 
            (configure-datatypes [config]
              (let [datatype (or (-> config :table-details :datatype)
@@ -253,7 +270,7 @@
        ;;(pprint functions)
        ;;(pprint fixed-paths)
        ;;(pprint table-details)
-       (pprint setup-messages)
+       ;;(pprint setup-messages)
 
        ;; TODO: Return messages, logging an error if the list is not empty.
        (or messages []))))
