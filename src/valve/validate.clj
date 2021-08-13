@@ -209,12 +209,34 @@
 
            (check-rows [config spec table rows]
              (let [errors (->> rows
-                               (map-indexed (fn [idx arg]
-                                              (when-not (s/valid? spec arg)
-                                                (merge (s/explain-data spec arg)
-                                                       {:row idx}))))
+                               (map-indexed
+                                (fn [idx row]
+                                  (when-not (s/valid? spec row)
+                                    (let [{problems ::s/problems
+                                           value ::s/value
+                                           :as explanation} (s/explain-data spec row)]
+                                      ;;(pprint value)
+                                      ;;(pprint explanation)
+                                      (->> problems
+                                           (map (fn [problem]
+                                                  (hash-map
+                                                   :row idx
+                                                   :column (->> problem
+                                                                :path
+                                                                (first)
+                                                                (.indexOf (keys value)))
+                                                   :level (->> value
+                                                               :level
+                                                               (#(if (s/valid? :valve.spec/level %)
+                                                                   %
+                                                                   "ERROR")))
+                                                   :message (str
+                                                             (-> problem :path first)  " has value "
+                                                             (:val problem) " that does not "
+                                                             "conform to " (:pred problem))))))))))
+
                                (remove nil?))]
-               ;;(pprint errors)
+               (pprint errors)
 
                []))
 

@@ -1,6 +1,8 @@
 # valve.clj
 VALVE in Clojure
 
+This project is a work in progress.
+
 ## Setup
 
 To be added.
