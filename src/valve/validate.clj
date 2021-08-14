@@ -207,38 +207,58 @@
                   (apply merge)
                   (keywordize-keys)))
 
-           (check-rows [config spec table rows]
-             (let [errors (->> rows
-                               (map-indexed
-                                (fn [idx row]
-                                  (when-not (s/valid? spec row)
-                                    (let [{problems ::s/problems
-                                           value ::s/value
-                                           :as explanation} (s/explain-data spec row)]
-                                      ;;(pprint value)
-                                      ;;(pprint explanation)
-                                      (->> problems
-                                           (map (fn [problem]
-                                                  (hash-map
-                                                   :row idx
-                                                   :column (->> problem
-                                                                :path
-                                                                (first)
-                                                                (.indexOf (keys value)))
-                                                   :level (->> value
-                                                               :level
-                                                               (#(if (s/valid? :valve.spec/level %)
-                                                                   %
-                                                                   "ERROR")))
-                                                   :message (str
-                                                             (-> problem :path first)  " has value "
-                                                             (:val problem) " that does not "
-                                                             "conform to " (:pred problem))))))))))
+           (idx-to-a1 [row-num col-num]
+             (loop [divisor col-num
+                    column-label ""]
+               (let [[divisor modulus] [(quot divisor 26) (mod divisor 26)]
+                     [divisor modulus] (if (= 0 modulus)
+                                         [(- divisor 1) 26]
+                                         [divisor modulus])
+                     column-label (-> modulus
+                                      (+ 64)
+                                      (char)
+                                      (str column-label))]
+                 (if (= 0 divisor)
+                   (str column-label row-num)
+                   (recur divisor column-label)))))
 
-                               (remove nil?))]
-               (pprint errors)
-
-               []))
+           (check-rows [config spec table-name rows]
+             (let [errors
+                   (->> rows
+                        (map-indexed
+                         (fn [idx row]
+                           (when-not (s/valid? spec row)
+                             (let [{problems ::s/problems
+                                    value ::s/value} (s/explain-data spec row)]
+                               (->> problems
+                                    (map
+                                     (fn [problem]
+                                       (hash-map
+                                        :table table-name
+                                        :cell (let [col-num (->> problem
+                                                                 :path
+                                                                 (first)
+                                                                 (.indexOf (keys value))
+                                                                 (+ 1))
+                                                    row-num (if (some #(= table-name %)
+                                                                      ["field" "rule" "datatype"])
+                                                              idx
+                                                              (+ row-start idx))]
+                                                (idx-to-a1 row-num col-num))
+                                        :level (->> value
+                                                    :level
+                                                    (#(if (s/valid? :valve.spec/level %)
+                                                        %
+                                                        "ERROR")))
+                                        :message (str
+                                                  (-> problem :path first)  " has value "
+                                                  (:val problem) " that does not "
+                                                  "conform to " (:pred problem))
+                                        :suggestion (:suggestion value)))))))))
+                        (remove nil?)
+                        (flatten))]
+               ;; Return the error list
+               errors))
 
            (configure-datatypes [config]
              (let [datatype (or (-> config :table-details :datatype)
@@ -247,6 +267,8 @@
                    messages (check-rows config :valve.spec/datatype "datatype" rows)
                    ;; to be continued ...
                    ]
+
+               (pprint messages)
 
                (doseq [row rows]
                  ;; TODO: implement this for loop:
