@@ -7,60 +7,61 @@
             [clojure.string :as string]
             [clojure.walk :refer [keywordize-keys]]
             [valve.log :as log]
+            [valve.parse :refer [parse]]
             ;; We need to load this dependency, even if we never explicitly reference it, in order
             ;; to bring the :valve.spec/... namespaces into scope.
             [valve.spec]))
 
 ;; Builtin validate functions
+;; TODO: Implement this function
 (defn validate-any
   "TODO: Insert docstring here"
-  ;; TODO: Implement this function
   [])
 
+;; TODO: Implement this function
 (defn validate-concat
   "TODO: Insert docstring here"
-  ;; TODO: Implement this function
   [])
 
+;; TODO: Implement this function
 (defn validate-distinct
   "TODO: Insert docstring here"
-  ;; TODO: Implement this function
   [])
 
+;; TODO: Implement this function
 (defn validate-in
   "TODO: Insert docstring here"
-  ;; TODO: Implement this function
   [])
 
+;; TODO: Implement this function
 (defn validate-list
   "TODO: Insert docstring here"
-  ;; TODO: Implement this function
   [])
 
+;; TODO: Implement this function
 (defn validate-lookup
   "TODO: Insert docstring here"
-  ;; TODO: Implement this function
   [])
 
+;; TODO: Implement this function
 (defn validate-sub
   "TODO: Insert docstring here"
-  ;; TODO: Implement this function
   [])
 
+;; TODO: Implement this function
 (defn validate-under
   "TODO: Insert docstring here"
-  ;; TODO: Implement this function
   [])
 
+;; TODO: Implement this function
 (defn validate-not
   "TODO: Insert docstring here"
-  ;; TODO: Implement this function
   [])
 
 ;; Builtin check functions:
+;; TODO: Implement this function
 (defn check-lookup
   "TODO: Insert docstring here"
-  ;; TODO: Implement this function
   [])
 
 (def default-datatypes
@@ -171,7 +172,8 @@
                             (map last)
                             (map #(string/replace % #"\..*$" ""))
                             (apply distinct?))
-               (throw (Exception. "Input paths contain duplicate table names")))
+               (throw (Exception.
+                       (str "Input paths: " (vec fixed-paths) " contain duplicate table names"))))
              fixed-paths)
 
            (get-table-details [fixed-paths]
@@ -223,7 +225,7 @@
                    (recur divisor column-label)))))
 
            (check-rows [config spec table-name rows]
-             (let [errors
+             (let [messages
                    (->> rows
                         (map-indexed
                          (fn [idx row]
@@ -257,24 +259,87 @@
                                         :suggestion (:suggestion value)))))))))
                         (remove nil?)
                         (flatten))]
-               ;; Return the error list
-               errors))
+               ;; Return the list of error messages:
+               messages))
+
+           ;; TODO: Implement this function; returns an error string if there is a problem,
+           ;; otherwise nil for a successful check.
+           (check-function [config table-name column parsed]
+             ;;"Your function is full of bugs."
+             )
+
+           ;; TODO: Implement this function
+           (validate-condition [config condition table-name column row-idx value]
+             (cond
+               (= (:type condition) "function")
+               (do)
+
+               (= (:type condition) "string")
+               (do)
+
+               :else
+               (throw (Exception. (str "Invalid condition: '" condition "'"))))
+
+             [])
+
+           (build-condition [config table-name column condition]
+             (let [parsed (parse condition)]
+               (cond
+                 (= (:type parsed) "function")
+                 (let [err (check-function config table-name column parsed)]
+                   (when err (throw (Exception. err))))
+
+                 (= (:type parsed) "string")
+                 (when-not (-> config :datatypes (contains? (-> parsed :value keyword)))
+                   (throw (Exception. (str "Unrecognised datatype '" (:value parsed) "'"))))
+
+                 :else
+                 (throw (Exception. (str "Invalid condition '" condition "'"))))
+               ;; Return the parsed condition:
+               parsed))
+
+           (check-config-contents [config table-name conditions rows]
+             (let [parsed-conditions (->> conditions
+                                          (seq)
+                                          (map (fn [[column condition]]
+                                                 [column (build-condition config table-name
+                                                                          column condition)])))
+                   row-idx (:row-start config)
+                   messages (->> (for [row rows]
+                                   (->> parsed-conditions
+                                        (seq)
+                                        (map-indexed
+                                         (fn [idx [column condition]]
+                                           (validate-condition config condition table-name column
+                                                               (-> config :row-start (+ idx))
+                                                               (-> row (get (keyword column))))))
+                                        (flatten)))
+                                 (flatten))]
+               messages))
 
            (configure-datatypes [config]
              (let [datatype (or (-> config :table-details :datatype)
                                 (throw (Exception. "Missing table 'datatype'")))
                    rows (:rows datatype)
-                   messages (check-rows config :valve.spec/datatype "datatype" rows)
-                   ;; to be continued ...
-                   ]
-
-               (pprint messages)
-
+                   config (-> config (assoc :datatypes default-datatypes))
+                   messages (-> (check-rows config :valve.spec/datatype "datatype" rows)
+                                (concat (check-config-contents config "datatype"
+                                                               datatype-conditions rows)))]
                (doseq [row rows]
                  ;; TODO: implement this for loop:
                  )
 
-               messages))]
+               [config messages]))
+
+           ;; TODO: Implement this function
+           (configure-fields [config]
+             (let [messages []]
+               [config messages]))
+
+           ;; TODO: Implement this function
+           (configure-rules [config]
+             (let [messages []]
+               [config messages]))]
 
      (let [;; Register functions:
            functions (->> custom-functions
@@ -300,12 +365,16 @@
 
            ;; Load all tables, error on duplicates
            table-details (-> fixed-paths (check-for-duplicates) (get-table-details))
-           config {:functions functions :table-details table-details :row-start row-start
-                   :datatypes default-datatypes}
 
-           ;; TODO: Load datatype, field, and rule - stop process on any problems
-           setup-messages (configure-datatypes config)
+           ;; Set up the initial configuration:
+           config {:functions functions :table-details table-details :row-start row-start}
 
+           ;; Load datatype, field, and rule configuration - stop process on any problems
+           [config setup-messages] (configure-datatypes config)
+           [config setup-messages] (configure-fields config)
+           [config setup-messages] (configure-rules config)
+
+           ;; TODO:
            kill-messages (do)
 
            ;; TODO: Run validation
