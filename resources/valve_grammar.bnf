@@ -1,0 +1,50 @@
+(*****************************
+  Instaparse (https://github.com/Engelberg/instaparse#reference) grammar for valve
+ *****************************)
+
+start = _ expression _
+expression = string | function
+
+string = label
+field = label "." label
+label = ALPHANUM
+ALPHANUM = #"[a-zA-Z0-9-_]"+ | dqstring
+_ = #"\s"*
+
+function = function-name "(" arguments ")"
+function-name = ALPHANUM
+arguments = _ argument (_ "," _ argument)* _
+argument = string | field | function | named-arg | regex
+named-arg = label "=" label
+
+regex = regex-sub | regex-match
+regex-match = "/" regex-pattern "/" regex-flag
+regex-sub = "s/" regex-pattern "/" regex-pattern "/" regex-flag
+
+regex-pattern = regex-escaped | regex-unescaped
+regex-escaped = regex-unescaped "\\/" regex-unescaped
+regex-unescaped = #"[^/]"*
+regex-flag = #"[a-z]"*
+
+(*****************************
+  The following are instaparse versions of the string grammar for nearley defined here:
+  https://github.com/kach/nearley/blob/0b7a260fba9a9f15f4d3b24f7e7b6cffffe292d7/builtin/string.ne
+ *****************************)
+
+dqstring = "\"" dstrchar* "\""
+
+sqstring = "'" sstrchar* "'"
+
+btstring = "`" #"[^`]"* "`"
+
+dstrchar = #'[^\\"\n]'
+         | "\\" strescape
+
+sstrchar = #"[^\\'\n]"
+         | "\\" strescape
+         | "\\'"
+
+strescape = #'["\\/bfnrt]'
+          | "u" hexchar hexchar hexchar hexchar
+
+hexchar = #"[a-fA-F0-9]"

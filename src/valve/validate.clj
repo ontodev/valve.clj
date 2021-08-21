@@ -7,7 +7,7 @@
             [clojure.string :as string]
             [clojure.walk :refer [keywordize-keys]]
             [valve.log :as log]
-            [valve.parse :refer [parse]]
+            [valve.parse :refer [parse-condition]]
             ;; We need to load this dependency, even if we never explicitly reference it, in order
             ;; to bring the :valve.spec/... namespaces into scope.
             [valve.spec]))
@@ -283,7 +283,7 @@
              [])
 
            (build-condition [config table-name column condition]
-             (let [parsed (parse condition)]
+             (let [parsed (parse-condition condition)]
                (cond
                  (= (:type parsed) "function")
                  (let [err (check-function config table-name column parsed)]
