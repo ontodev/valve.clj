@@ -6,20 +6,20 @@ start = _ expression _
 expression = string | function
 
 string = label
-field = label "." label
-label = ALPHANUM
-ALPHANUM = #"[a-zA-Z0-9-_]"+ | dqstring
+field = label <"."> label
+label = ALPHANUM | dqstring
+ALPHANUM = #"[a-zA-Z0-9-_]"+
 _ = #"\s"*
 
-function = function-name "(" arguments ")"
+function = function-name <"("> arguments <")">
 function-name = ALPHANUM
-arguments = _ argument (_ "," _ argument)* _
+arguments = <_> argument (<_> <","> <_> argument)* <_>
 argument = string | field | function | named-arg | regex
-named-arg = label "=" label
+named-arg = label <"="> label
 
 regex = regex-sub | regex-match
-regex-match = "/" regex-pattern "/" regex-flag
-regex-sub = "s/" regex-pattern "/" regex-pattern "/" regex-flag
+regex-match = <"/"> regex-pattern <"/"> regex-flag
+regex-sub = <"s/"> regex-pattern <"/"> regex-pattern <"/"> regex-flag
 
 regex-pattern = regex-escaped | regex-unescaped
 regex-escaped = regex-unescaped "\\/" regex-unescaped
@@ -37,14 +37,14 @@ sqstring = "'" sstrchar* "'"
 
 btstring = "`" #"[^`]"* "`"
 
-dstrchar = #'[^\\"\n]'
-         | "\\" strescape
+<dstrchar> = #'[^\\"\n]'
+           | "\\" strescape
 
-sstrchar = #"[^\\'\n]"
-         | "\\" strescape
-         | "\\'"
+<sstrchar> = #"[^\\'\n]"
+           | "\\" strescape
+           | "\\'"
 
-strescape = #'["\\/bfnrt]'
-          | "u" hexchar hexchar hexchar hexchar
+<strescape> = #'["\\/bfnrt]'
+            | "u" hexchar hexchar hexchar hexchar
 
-hexchar = #"[a-fA-F0-9]"
+<hexchar> = #"[a-fA-F0-9]"
