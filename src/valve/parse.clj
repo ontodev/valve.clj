@@ -73,7 +73,7 @@
 (defn parse-condition
   "TODO: Insert docstring here"
   [condition]
-  (let [condition-parser (-> "valve_grammar.bnf"
+  (let [condition-parser (-> "valve_grammar.ebnf"
                              (io/resource)
                              (insta/parser))]
     (println (str "PARSING CONDITION: '" condition "'"))
