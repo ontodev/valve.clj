@@ -115,13 +115,11 @@
                                 "validate" validate-under}})
 
 (def datatype-conditions
-  [;;[:datatype "datatype_label"],
-   [:parent "any(datatype.parent, sasquatch, bluecracker, lookup(blue, grue))"]
-   ;;[:parent "any(blank, in(datatype.datatype))"]
-   ;;[:match "any(blank, regex)"]
-   ;;[:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
-   ;;[:replace "any(blank, regex_sub)"]
-   ])
+  [[:datatype "datatype_label"],
+   [:parent "any(blank, in(datatype.datatype))"]
+   [:match "any(blank, regex)"]
+   [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
+   [:replace "any(blank, regex_sub)"]])
 
 (defn- parsed-to-str
   "TODO: Insert docstring here"
