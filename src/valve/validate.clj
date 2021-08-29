@@ -116,7 +116,7 @@
 
 (def datatype-conditions
   [;;[:datatype "datatype_label"],
-   [:parent "any(datatype.parent, lookup(blue, grue))"]
+   [:parent "any(datatype.parent, sasquatch, bluecracker, lookup(blue, grue))"]
    ;;[:parent "any(blank, in(datatype.datatype))"]
    ;;[:match "any(blank, regex)"]
    ;;[:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
@@ -191,15 +191,14 @@
         ;; TODO: Implement this function:
         check-arg
         (fn [config table arg expected]
-          (println "Checking arg" arg))
+          (log/debug "Checking arg" arg)
+          "error")
 
         ;; TODO: Add a comment here describing this function
         ;; TODO: Implement this function. Raise an exception for ALL failures.
-
-
         check-args
         (fn []
-          (println "Checking args" args)
+          (log/debug "Checking args" args)
           (let [check (:check function)]
             (cond
               (fn? check)
@@ -245,13 +244,40 @@
 
                           ;; One or more:
                           (string/ends-with? e "+")
-                          (do (println "one or more")
-                              (recur (+ i 1)
-                                     allowed-args
-                                     errors
-                                     (first check)
-                                     (drop 1 check)
-                                     add-msg))
+                          (letfn [(check-one-or-more [idx]
+                                    (loop [idx idx
+                                           add-msg add-msg
+                                           errors errors]
+                                      (let [args (-> (- (count args) idx) (take-last args))
+                                            a (first args)]
+                                        (if-not a
+                                          [idx add-msg errors]
+                                          (let [err (check-arg config table-name a e)]
+                                            (if err
+                                              (if (first check)
+                                                [idx (str " or " err) errors]
+                                                (recur (+ idx 1)
+                                                       add-msg
+                                                       (conj errors
+                                                             (str "argument "
+                                                                  (+ idx 1) " " err add-msg))))
+                                              (recur (+ idx 1)
+                                                     add-msg
+                                                     errors)))))))]
+
+                            (let [e (-> (count e) (- 1) (#(subs e 0 %)))]
+                              (if (<= (count args) i)
+                                (recur nil nil (conj errors (str "requires one or more '" e
+                                                                 "' at argument " (+ i 1)))
+                                       nil nil nil)
+                                (let [[i add-msg errors] (check-one-or-more i)]
+                                  (println (str i " '" add-msg "' " errors))
+                                  (recur (+ i 1)
+                                         allowed-args
+                                         errors
+                                         (first check)
+                                         (drop 1 check)
+                                         add-msg)))))
 
                           :else
                           (do (println "else")
@@ -262,7 +288,7 @@
                                      (drop 1 check)
                                      add-msg)))))]
                 ;; At this point we are out of the loop:
-                (println errors)))))]
+                (pprint errors)))))]
 
     (cond
       (nil? function)
