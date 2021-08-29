@@ -3,7 +3,7 @@
             [clojure.java.io :as io]
             ;; TODO: pprint is used for debugging during dev. Remove this dependency later.
             [clojure.pprint :refer [pprint]]
-            [clojure.spec.alpha :as s]
+            [clojure.spec.alpha :as spec]
             [clojure.string :as string]
             [clojure.walk :refer [keywordize-keys]]
             [valve.log :as log]
@@ -62,7 +62,8 @@
 ;; TODO: Implement this function
 (defn check-lookup
   "TODO: Insert docstring here"
-  [])
+  [config table column args]
+  (println "In check-lookup function"))
 
 (def default-datatypes
   {:blank {:datatype "blank"
@@ -114,11 +115,168 @@
                                 "validate" validate-under}})
 
 (def datatype-conditions
-  [[:datatype "datatype_label"],
-   [:parent "any(blank, in(datatype.datatype))"]
-   [:match "any(blank, regex)"]
-   [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
-   [:replace "any(blank, regex_sub)"]])
+  [;;[:datatype "datatype_label"],
+   [:parent "any(datatype.parent, lookup(blue, grue))"]
+   ;;[:parent "any(blank, in(datatype.datatype))"]
+   ;;[:match "any(blank, regex)"]
+   ;;[:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
+   ;;[:replace "any(blank, regex_sub)"]
+   ])
+
+(defn- parsed-to-str
+  "TODO: Insert docstring here"
+  [config condition]
+  (log/debug "Unparsing condition:" condition)
+
+  (let [cond-type (:type condition)]
+    (cond
+      (= cond-type "string")
+      (or (->> config :datatypes (keys)
+               (filter #(= (name %) (:value condition)))
+               (map name)
+               (first))
+          (str "\"" (:value condition) "\""))
+
+      (= cond-type "field")
+      (str (:table condition) "." (:column condition))
+
+      (= cond-type "named-arg")
+      (str (:key condition) "=" (:value condition))
+
+      (= cond-type "regex")
+      (let [pattern (:pattern condition)
+            replace (:replace condition)
+            flags (:flags condition)]
+        (if replace
+          (str "s/" pattern "/" replace "/" flags)
+          (str "/" pattern "/" flags)))
+
+      (= cond-type "function")
+      (->> (:args condition)
+           (map #(parsed-to-str config %))
+           (string/join ", ")
+           (#(str (:name condition) "(" % ")")))
+
+      :else
+      (throw (Exception. (str "Unknown condition type: " cond-type))))))
+
+(defn- check-function
+  "TODO: Add docstring here"
+  [config table-name column parsed]
+  (let [condition (parsed-to-str config parsed)
+        condition-name (:name parsed)
+        function (-> (:functions config)
+                     (get (keyword condition-name)))
+        args (:args parsed)
+
+        ;; TODO: Add a comment here describing this function
+        validate-args
+        (fn []
+          (doseq [arg args]
+            (cond
+              (= (:type arg) "function")
+              (let [err (check-function config table-name column arg)]
+                (when err (throw (Exception. err))))
+
+              (= (:type arg) "field")
+              (let [table (:table arg)
+                    column (:column arg)]
+                (when-not (-> config :table-details (get (keyword table)))
+                  (throw (Exception. (str "unrecognized table '" table "'"))))
+                (when (->> config :table-details (#(get % (keyword table)))
+                           :fields (not-any? #(= (keyword column) %)))
+                  (throw (Exception. (str "unrecognized column '" column
+                                          "' in table '" table "'"))))))))
+
+        ;; TODO: Implement this function:
+        check-arg
+        (fn [config table arg expected]
+          (println "Checking arg" arg))
+
+        ;; TODO: Add a comment here describing this function
+        ;; TODO: Implement this function. Raise an exception for ALL failures.
+
+
+        check-args
+        (fn []
+          (println "Checking args" args)
+          (let [check (:check function)]
+            (cond
+              (fn? check)
+              (check config table-name column args)
+
+              (not (vector? check))
+              (throw (Exception. (str "'check' value for " condition-name
+                                      " must be a list or function")))
+
+              :else
+              (let [errors
+                    (loop [i 0
+                           allowed-args 0
+                           errors []
+                           e (first check)
+                           check (drop 1 check)
+                           add-msg ""]
+                      (if-not e
+                        ;; If there are no more elements to check, just return the list of errors
+                        ;; found (if any):
+                        errors
+                        ;; Otherwise ... TODO: add comment here.
+                        (cond
+                          ;; Zero or more:
+                          (string/ends-with? e "*")
+                          (do (println "zero or more")
+                              (recur (+ i 1)
+                                     allowed-args
+                                     errors
+                                     (first check)
+                                     (drop 1 check)
+                                     add-msg))
+
+                          ;; Zero or one:
+                          (string/ends-with? e "?")
+                          (do (println "zero or one")
+                              (recur (+ i 1)
+                                     allowed-args
+                                     errors
+                                     (first check)
+                                     (drop 1 check)
+                                     add-msg))
+
+                          ;; One or more:
+                          (string/ends-with? e "+")
+                          (do (println "one or more")
+                              (recur (+ i 1)
+                                     allowed-args
+                                     errors
+                                     (first check)
+                                     (drop 1 check)
+                                     add-msg))
+
+                          :else
+                          (do (println "else")
+                              (recur (+ i 1)
+                                     allowed-args
+                                     errors
+                                     (first check)
+                                     (drop 1 check)
+                                     add-msg)))))]
+                ;; At this point we are out of the loop:
+                (println errors)))))]
+
+    (cond
+      (nil? function)
+      (str "unrecognized function '" condition-name "'")
+
+      (spec/valid? :valve.spec.function/args args)
+      (try
+        (validate-args)
+        (check-args)
+        (catch Exception e
+          (.getMessage e)))
+
+      :else
+      (spec/explain-str :valve.spec.function/args args))))
 
 (defn validate
   "TODO: Insert docstring here"
@@ -127,6 +285,8 @@
               (not (instance? java.util.Map custom-functions)))
      (throw (Exception. "Value for custom-functions must be a map")))
 
+   ;; TODO: Not all of these need to be inner functions. Functions that are either "small" or that
+   ;; do not need to access the above arguments to validate can be pulled out as private functions.
    (letfn [(check-custom [[func-name details]]
              (when (contains? default-functions func-name)
                (throw (Exception.
@@ -229,9 +389,9 @@
                    (->> rows
                         (map-indexed
                          (fn [idx row]
-                           (when-not (s/valid? spec row)
-                             (let [{problems ::s/problems
-                                    value ::s/value} (s/explain-data spec row)]
+                           (when-not (spec/valid? spec row)
+                             (let [{problems ::spec/problems
+                                    value ::spec/value} (spec/explain-data spec row)]
                                (->> problems
                                     (map
                                      (fn [problem]
@@ -249,7 +409,7 @@
                                                 (idx-to-a1 row-num col-num))
                                         :level (->> value
                                                     :level
-                                                    (#(if (s/valid? :valve.spec/level %)
+                                                    (#(if (spec/valid? :valve.spec/level %)
                                                         %
                                                         "ERROR")))
                                         :message (str
@@ -261,12 +421,6 @@
                         (flatten))]
                ;; Return the list of error messages:
                messages))
-
-           ;; TODO: Implement this function; returns an error string if there is a problem,
-           ;; otherwise nil for a successful check.
-           (check-function [config table-name column parsed]
-             ;;"Your function is full of bugs."
-             )
 
            ;; TODO: Implement this function
            (validate-condition [config condition table-name column row-idx value]
@@ -301,6 +455,10 @@
            (check-config-contents [config table-name conditions rows]
              (let [parsed-conditions (->> conditions
                                           (seq)
+                                          ;;;;;;;;;;;;;;;;;;;;;;;;;
+                                          ;; THIS IS ADDED FOR DEV ONLY
+                                          ;;(take 1)
+                                          ;;;;;;;;;;;;;;;;;;;;;;;;;
                                           (map (fn [[column condition]]
                                                  [column (build-condition config table-name
                                                                           column condition)])))
@@ -315,6 +473,11 @@
                                                                (-> row (get (keyword column))))))
                                         (flatten)))
                                  (flatten))]
+
+               ;; TODO: Remove later:
+               ;;(clojure.pprint/pprint parsed-conditions)
+
+               ;; Return any generated error messages:
                messages))
 
            (configure-datatypes [config]

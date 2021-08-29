@@ -2,7 +2,7 @@
   Instaparse (https://github.com/Engelberg/instaparse#reference) grammar for valve
  *****************************)
 
-start = _ expression _
+start = <_> expression <_>
 expression = string | function
 
 string = label
