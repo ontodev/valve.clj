@@ -87,7 +87,7 @@
 
                               ;; TODO: Changed temporarily for dev:
                               ;;"check" ["expression+"]
-                              "check" ["expression?"]
+                              "check" ["expression"]
 
                               "validate" validate-any}
                         :concat {"usage" "concat(value+)"
@@ -313,14 +313,24 @@
                                        (drop 1 check)
                                        add-msg))))
 
+                          ;; exactly one
                           :else
-                          (do (println "else")
+                          (if (<= (count args) i)
+                            (recur nil nil (conj errors (str "requires one '" e
+                                                             "' at argument " (+ i 1)))
+                                   nil nil nil)
+                            (let [err (check-arg config table-name (first args) e)
+                                  errors (if-not err
+                                           errors
+                                           (conj errors (str "argument " (+ i 1) " " err)))]
+                              (println "exactly one")
                               (recur (+ i 1)
                                      allowed-args
                                      errors
                                      (first check)
                                      (drop 1 check)
-                                     add-msg)))))]
+                                     add-msg))))))]
+
                 ;; At this point we are out of the loop:
                 (pprint errors)))))]
 
