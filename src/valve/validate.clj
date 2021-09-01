@@ -84,7 +84,11 @@
                :level "ERROR"}})
 
 (def default-functions {:any {"usage" "any(expression+)"
-                              "check" ["expression+"]
+
+                              ;; TODO: Changed temporarily for dev:
+                              ;;"check" ["expression+"]
+                              "check" ["expression*"]
+
                               "validate" validate-any}
                         :concat {"usage" "concat(value+)"
                                  "check" ["(expression or string)+"]
@@ -115,11 +119,15 @@
                                 "validate" validate-under}})
 
 (def datatype-conditions
-  [[:datatype "datatype_label"],
-   [:parent "any(blank, in(datatype.datatype))"]
-   [:match "any(blank, regex)"]
-   [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
-   [:replace "any(blank, regex_sub)"]])
+  [[;; Used only for dev:
+    :parent "any(datatype.parent, foo, bar, lookup(blue, grue))"]
+   ;; Commented out temporarily for dev:
+   ;;[:datatype "datatype_label"],
+   ;;[:parent "any(blank, in(datatype.datatype))"]
+   ;;[:match "any(blank, regex)"]
+   ;;[:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
+   ;;[:replace "any(blank, regex_sub)"]
+   ])
 
 (defn- parsed-to-str
   "TODO: Insert docstring here"
@@ -220,16 +228,6 @@
                         errors
                         ;; Otherwise ... TODO: add comment here.
                         (cond
-                          ;; Zero or more:
-                          (string/ends-with? e "*")
-                          (do (println "zero or more")
-                              (recur (+ i 1)
-                                     allowed-args
-                                     errors
-                                     (first check)
-                                     (drop 1 check)
-                                     add-msg))
-
                           ;; Zero or one:
                           (string/ends-with? e "?")
                           (do (println "zero or one")
@@ -239,6 +237,33 @@
                                      (first check)
                                      (drop 1 check)
                                      add-msg))
+
+                          ;; Zero or more:
+                          (string/ends-with? e "*")
+                          (letfn [(check-zero-or-more [idx]
+                                    (loop [idx idx
+                                           errors errors]
+                                      (let [args (-> (- (count args) idx) (take-last args))
+                                            a (first args)]
+                                        (if-not a
+                                          [idx errors]
+                                          (let [err (check-arg config table-name a e)
+                                                errors (if-not err
+                                                         errors
+                                                         (conj errors (str "optional argument "
+                                                                           (+ idx 1) " " err)))]
+                                            (recur (+ idx 1)
+                                                   errors))))))]
+                            (let [e (-> (count e) (- 1) (#(subs e 0 %)))]
+                              (let [[i errors] (check-zero-or-more i)]
+                                (recur (+ i 1)
+                                       allowed-args
+                                       errors
+                                       (first check)
+                                       (drop 1 check)
+                                       ;; add-msg is unused for the zero or more case, but we
+                                       ;; need to recur it.
+                                       add-msg))))
 
                           ;; One or more:
                           (string/ends-with? e "+")
@@ -264,12 +289,12 @@
                                                      errors)))))))]
 
                             (let [e (-> (count e) (- 1) (#(subs e 0 %)))]
+                              (println "One or more")
                               (if (<= (count args) i)
                                 (recur nil nil (conj errors (str "requires one or more '" e
                                                                  "' at argument " (+ i 1)))
                                        nil nil nil)
                                 (let [[i add-msg errors] (check-one-or-more i)]
-                                  (println (str i " '" add-msg "' " errors))
                                   (recur (+ i 1)
                                          allowed-args
                                          errors
