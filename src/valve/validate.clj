@@ -201,7 +201,6 @@
           "error")
 
         ;; TODO: Add a comment here describing this function
-        ;; TODO: Implement this function. Raise an exception for ALL failures.
         check-args
         (fn []
           (log/debug "Checking args" args)
@@ -215,125 +214,133 @@
                                       " must be a list or function")))
 
               :else
-              (let [errors
-                    (loop [i 0
-                           allowed-args 0
-                           errors []
-                           e (first check)
-                           check (drop 1 check)
-                           add-msg ""]
-                      (if-not e
-                        ;; If there are no more elements to check, just return the list of errors
-                        ;; found (if any):
-                        errors
-                        ;; Otherwise ... TODO: add comment here.
-                        (cond
-                          ;; Zero or more:
-                          (string/ends-with? e "*")
-                          (letfn [(check-zero-or-more [idx]
-                                    (loop [idx idx
-                                           errors errors]
-                                      (let [args (-> (- (count args) idx) (take-last args))
-                                            a (first args)]
-                                        (if-not a
-                                          [idx errors]
-                                          (let [err (check-arg config table-name a e)
-                                                errors (if-not err
-                                                         errors
-                                                         (conj errors (str "optional argument "
-                                                                           (+ idx 1) " " err)))]
-                                            (recur (+ idx 1)
-                                                   errors))))))]
-                            (let [e (-> (count e) (- 1) (#(subs e 0 %)))]
-                              (println "Zero or more")
-                              (let [[i errors] (check-zero-or-more i)]
-                                (recur (+ i 1)
-                                       allowed-args
-                                       errors
-                                       (first check)
-                                       (drop 1 check)
-                                       ;; add-msg is unused for the zero or more case, but we
-                                       ;; need to recur it.
-                                       add-msg))))
+              (loop [i 0
+                     allowed-args 0
+                     errors []
+                     e (first check)
+                     check (drop 1 check)
+                     add-msg ""
+                     break? false]
+                (if (or (not e) break?)
+                  ;; If there are no more elements to check:
+                  (->> errors
+                       (#(if (< (+ i allowed-args) (count args))
+                           (conj % (str "expects " (+ i 1) " argument(s), but "
+                                        (count args) " were given"))
+                           %))
+                       (string/join "; ")
+                       (str condition-name " "))
+                  ;; Otherwise ... TODO: add comment here.
+                  (cond
+                    ;; Zero or more:
+                    (string/ends-with? e "*")
+                    (letfn [(check-zero-or-more [idx]
+                              (loop [idx idx
+                                     errors errors]
+                                (let [args (-> (- (count args) idx) (take-last args))
+                                      a (first args)]
+                                  (if-not a
+                                    [idx errors]
+                                    (let [err (check-arg config table-name a e)
+                                          errors (if-not err
+                                                   errors
+                                                   (conj errors (str "optional argument "
+                                                                     (+ idx 1) " " err)))]
+                                      (recur (+ idx 1)
+                                             errors))))))]
+                      (let [e (-> (count e) (- 1) (#(subs e 0 %)))]
+                        (let [[i errors] (check-zero-or-more i)]
+                          (recur (+ i 1)
+                                 allowed-args
+                                 errors
+                                 (first check)
+                                 (drop 1 check)
+                                 add-msg
+                                 false))))
 
-                          ;; One or more:
-                          (string/ends-with? e "+")
-                          (letfn [(check-one-or-more [idx]
-                                    (loop [idx idx
-                                           add-msg add-msg
-                                           errors errors]
-                                      (let [args (-> (- (count args) idx) (take-last args))
-                                            a (first args)]
-                                        (if-not a
-                                          [idx add-msg errors]
-                                          (let [err (check-arg config table-name a e)]
-                                            (if err
-                                              (if (first check)
-                                                [idx (str " or " err) errors]
-                                                (recur (+ idx 1)
-                                                       add-msg
-                                                       (conj errors
-                                                             (str "argument "
-                                                                  (+ idx 1) " " err add-msg))))
-                                              (recur (+ idx 1)
-                                                     add-msg
-                                                     errors)))))))]
-
-                            (let [e (-> (count e) (- 1) (#(subs e 0 %)))]
-                              (println "One or more")
-                              (if (<= (count args) i)
-                                (recur nil nil (conj errors (str "requires one or more '" e
-                                                                 "' at argument " (+ i 1)))
-                                       nil nil nil)
-                                (let [[i add-msg errors] (check-one-or-more i)]
-                                  (recur (+ i 1)
-                                         allowed-args
-                                         errors
-                                         (first check)
-                                         (drop 1 check)
-                                         add-msg)))))
-
-                          ;; Zero or one:
-                          (string/ends-with? e "?")
-                          (letfn [(check-zero-or-one [idx]
-                                    (let [err (check-arg config table-name (first args) e)
-                                          allowed-args (+ allowed-args 1)]
+                    ;; One or more:
+                    (string/ends-with? e "+")
+                    (letfn [(check-one-or-more [idx]
+                              (loop [idx idx
+                                     add-msg add-msg
+                                     errors errors
+                                     break? false]
+                                (let [args (-> (- (count args) idx) (take-last args))
+                                      a (first args)]
+                                  (if-not a
+                                    [idx add-msg errors break?]
+                                    (let [err (check-arg config table-name a e)]
                                       (if err
                                         (if (first check)
-                                          [allowed-args (str " or " err) errors]
-                                          [allowed-args add-msg
-                                           (conj errors
-                                                 (str "argument " (+ idx 1) " " err add-msg))]))))]
-                            (when (>= (count args) i)
-                              (let [[allowed-args add-msg errors] (check-zero-or-one i)]
-                                (recur (+ i 1)
-                                       allowed-args
-                                       errors
-                                       (first check)
-                                       (drop 1 check)
-                                       add-msg))))
+                                          [idx (str " or " err) errors true]
+                                          (recur (+ idx 1)
+                                                 add-msg
+                                                 (conj errors (str "argument "
+                                                                   (+ idx 1) " " err add-msg))
+                                                 false))
+                                        (recur (+ idx 1)
+                                               add-msg
+                                               errors
+                                               false)))))))]
+                      (let [e (-> (count e) (- 1) (#(subs e 0 %)))]
+                        (if (<= (count args) i)
+                          (recur nil nil (conj errors (str "requires one or more '" e
+                                                           "' at argument " (+ i 1)))
+                                 nil nil nil true)
+                          (let [[i add-msg errors break?] (check-one-or-more i)]
+                            (recur (+ i 1)
+                                   allowed-args
+                                   errors
+                                   (first check)
+                                   (drop 1 check)
+                                   add-msg
+                                   break?)))))
 
-                          ;; exactly one
-                          :else
-                          (if (<= (count args) i)
-                            (recur nil nil (conj errors (str "requires one '" e
-                                                             "' at argument " (+ i 1)))
-                                   nil nil nil)
-                            (let [err (check-arg config table-name (first args) e)
-                                  errors (if-not err
-                                           errors
-                                           (conj errors (str "argument " (+ i 1) " " err)))]
-                              (println "exactly one")
-                              (recur (+ i 1)
-                                     allowed-args
+                    ;; Zero or one:
+                    (string/ends-with? e "?")
+                    (letfn [(check-zero-or-one [idx]
+                              (let [err (check-arg config table-name (first args) e)
+                                    allowed-args (+ allowed-args 1)]
+                                (if err
+                                  (if (first check)
+                                    [allowed-args (str " or " err) errors]
+                                    [allowed-args add-msg
+                                     (conj errors
+                                           (str "argument " (+ idx 1) " " err add-msg))]))))]
+                      (if-not (>= (count args) i)
+                        (recur (+ i 1)
+                               allowed-args
+                               errors
+                               (first check)
+                               (drop 1 check)
+                               add-msg
+                               true)
+                        (let [[allowed-args add-msg errors] (check-zero-or-one i)]
+                          (recur (+ i 1)
+                                 allowed-args
+                                 errors
+                                 (first check)
+                                 (drop 1 check)
+                                 add-msg
+                                 false))))
+
+                    ;; exactly one
+                    :else
+                    (if (<= (count args) i)
+                      (recur nil nil (conj errors (str "requires one '" e
+                                                       "' at argument " (+ i 1)))
+                             nil nil nil true)
+                      (let [err (check-arg config table-name (first args) e)
+                            errors (if-not err
                                      errors
-                                     (first check)
-                                     (drop 1 check)
-                                     add-msg))))))]
-
-                ;; At this point we are out of the loop:
-                (pprint errors)))))]
-
+                                     (conj errors (str "argument " (+ i 1) " " err)))]
+                        (recur (+ i 1)
+                               allowed-args
+                               errors
+                               (first check)
+                               (drop 1 check)
+                               add-msg
+                               false)))))))))]
     (cond
       (nil? function)
       (str "unrecognized function '" condition-name "'")
