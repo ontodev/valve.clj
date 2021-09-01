@@ -87,7 +87,7 @@
 
                               ;; TODO: Changed temporarily for dev:
                               ;;"check" ["expression+"]
-                              "check" ["expression*"]
+                              "check" ["expression?"]
 
                               "validate" validate-any}
                         :concat {"usage" "concat(value+)"
@@ -228,16 +228,6 @@
                         errors
                         ;; Otherwise ... TODO: add comment here.
                         (cond
-                          ;; Zero or one:
-                          (string/ends-with? e "?")
-                          (do (println "zero or one")
-                              (recur (+ i 1)
-                                     allowed-args
-                                     errors
-                                     (first check)
-                                     (drop 1 check)
-                                     add-msg))
-
                           ;; Zero or more:
                           (string/ends-with? e "*")
                           (letfn [(check-zero-or-more [idx]
@@ -255,6 +245,7 @@
                                             (recur (+ idx 1)
                                                    errors))))))]
                             (let [e (-> (count e) (- 1) (#(subs e 0 %)))]
+                              (println "Zero or more")
                               (let [[i errors] (check-zero-or-more i)]
                                 (recur (+ i 1)
                                        allowed-args
@@ -301,6 +292,26 @@
                                          (first check)
                                          (drop 1 check)
                                          add-msg)))))
+
+                          ;; Zero or one:
+                          (string/ends-with? e "?")
+                          (letfn [(check-zero-or-one [idx]
+                                    (let [err (check-arg config table-name (first args) e)
+                                          allowed-args (+ allowed-args 1)]
+                                      (if err
+                                        (if (first check)
+                                          [allowed-args (str " or " err) errors]
+                                          [allowed-args add-msg
+                                           (conj errors
+                                                 (str "argument " (+ idx 1) " " err add-msg))]))))]
+                            (when (>= (count args) i)
+                              (let [[allowed-args add-msg errors] (check-zero-or-one i)]
+                                (recur (+ i 1)
+                                       allowed-args
+                                       errors
+                                       (first check)
+                                       (drop 1 check)
+                                       add-msg))))
 
                           :else
                           (do (println "else")
