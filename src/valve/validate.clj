@@ -87,7 +87,7 @@
 
                               ;; TODO: Changed temporarily for dev:
                               ;;"check" ["expression+"]
-                              "check" ["regex-match or field"]
+                              "check" ["expression+"]
 
                               "validate" validate-any}
                         :concat {"usage" "concat(value+)"
@@ -121,7 +121,7 @@
 (def datatype-conditions
   [;; Used only for dev:
    ;;[:parent "any(datatype.parent, foo, bar, lookup(blue, grue))"]
-   [:parent "any(matterhorn)"]
+   [:parent "any(blank)"]
 
    ;; Commented out temporarily for dev:
    ;;[:datatype "datatype-label"],
@@ -547,7 +547,7 @@
         args (:args parsed)
 
         validate-args
-        (fn [config args table-name column]
+        (fn []
           ;; TODO: Add comment here
           (doseq [arg args]
             (cond
@@ -570,7 +570,7 @@
 
       (spec/valid? :valve.spec.function/args args)
       (try
-        (validate-args config args table-name column)
+        (validate-args)
         (check-args config function args table-name column function-name)
         (catch Exception e
           (let [condition (parsed-to-str config parsed)
@@ -647,13 +647,28 @@
         messages (-> (check-rows config :valve.spec/datatype "datatype" rows row-start)
                      (concat (check-config-contents config "datatype"
                                                     datatype-conditions rows)))]
-
-    ;; YOU ARE HERE:
-    (doseq [datatype rows]
-      ;; ...
-      )
-
-    [config messages]))
+    ;; Loop through the datatype records and add the corresponding datatype information to our
+    ;; configuration:
+    (loop [config config
+           rows rows]
+      (let [dt-rec (first rows)]
+        (if-not (nil? dt-rec)
+          ;; More records to process:
+          (let [match (:match dt-rec)
+                dt-rec (if (empty? match)
+                         dt-rec
+                         (->> match
+                              (re-find #"/(.+)/")
+                              (second)
+                              (re-pattern)
+                              (assoc dt-rec :match)))
+                dt-key (-> dt-rec :datatype (keyword))]
+            (recur (->> (assoc {} dt-key dt-rec)
+                        (merge (:datatypes config))
+                        (assoc config :datatypes))
+                   (drop 1 rows)))
+          ;; We are done. Return the new config as well as any error messages:
+          [config messages])))))
 
 ;; TODO: Implement this function
 (defn- configure-fields
@@ -706,7 +721,9 @@
          config {:functions functions :table-details table-details :row-start row-start}
 
          ;; Load datatype, field, and rule configuration - stop process on any problems
+         ;; IN PROGRESS:
          [config setup-messages] (configure-datatypes config row-start)
+         ;; TODO NEXT:
          [config setup-messages] (configure-fields config)
          [config setup-messages] (configure-rules config)
 
