@@ -66,6 +66,9 @@
       (= node-type :regex-unescaped)
       (->> result (drop 1) (string/join ""))
 
+      (= node-type :regex-flag)
+      (->> result (drop 1) (vec))
+
       :else
       first-value)))
 

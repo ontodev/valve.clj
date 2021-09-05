@@ -34,7 +34,7 @@
 (s/def :valve.spec.argument.regex/type #(= % "regex"))
 (s/def :valve.spec.argument.regex/pattern string?)
 (s/def :valve.spec.argument.regex/replace string?)
-(s/def :valve.spec.argument.regex/flags string?)
+(s/def :valve.spec.argument.regex/flags (s/nilable (s/coll-of string?)))
 
 (s/def :valve.spec.argument/regex (s/keys :req-un [:valve.spec.argument.regex/type
                                                    :valve.spec.argument.regex/pattern

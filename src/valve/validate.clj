@@ -70,7 +70,7 @@
            :parent ""
            :match #"^$"
            :level "ERROR"}
-   :datatype_label {:datatype "datatype_label"
+   :datatype-label {:datatype "datatype-label"
                     :parent ""
                     :match #"[A-Za-z][A-Za-z0-9_-]+"
                     :level "ERROR"}
@@ -78,7 +78,7 @@
            :parent ""
            :match #"^/.+/$"
            :level "ERROR"}
-   :regex_sub {:datatype "regex_sub"
+   :regex-sub {:datatype "regex-sub"
                :parent ""
                :match #"^s/.+[^\\]|.*(?<!/)/.*[^\\]/.+[^\\]|.*(?<!/)/.*[^\\]/.*$"
                :level "ERROR"}})
@@ -87,7 +87,7 @@
 
                               ;; TODO: Changed temporarily for dev:
                               ;;"check" ["expression+"]
-                              "check" ["(expression or string)"]
+                              "check" ["regex-match or field"]
 
                               "validate" validate-any}
                         :concat {"usage" "concat(value+)"
@@ -109,7 +109,7 @@
                               "check" ["expression"]
                               "validate" validate-not}
                         :sub {"usage" "sub(regex, expression)"
-                              "check" ["regex_sub" "expression"]
+                              "check" ["regex-sub" "expression"]
                               "validate" validate-sub}
                         :tree {"usage" "tree(column, [treename, named=bool])"
                                "check" ["column" "field?" "named:split?"]
@@ -121,14 +121,14 @@
 (def datatype-conditions
   [;; Used only for dev:
    ;;[:parent "any(datatype.parent, foo, bar, lookup(blue, grue))"]
-   [:parent "any(lookup(blue, grue))"]
+   [:parent "any(matterhorn)"]
 
    ;; Commented out temporarily for dev:
-   ;;[:datatype "datatype_label"],
+   ;;[:datatype "datatype-label"],
    ;;[:parent "any(blank, in(datatype.datatype))"]
    ;;[:match "any(blank, regex)"]
    ;;[:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
-   ;;[:replace "any(blank, regex_sub)"]
+   ;;[:replace "any(blank, regex-sub)"]
    ])
 
 (defn- check-custom
@@ -312,24 +312,80 @@
       :else
       (throw (Exception. (str "Unknown condition type: " cond-type))))))
 
-;; YOU ARE HERE
-;; TODO: Implement this function:
 (defn- check-arg
   "TODO: Add docstring here"
   [config table arg expected]
-  ;;(log/debug "Config is" config)
-  (log/debug "Table is" table)
-  (log/debug "Checking arg" arg)
-  (log/debug "Expected is" expected)
-
   (cond
     (.contains expected " or ")
-    (println "We got:" expected))
+    (let [;; Remove optional parentheses:
+          expected (string/replace expected #"^\(|\)$" "")
+          ;; Extract the list of disjuncts:
+          disjuncts (string/split expected #" or ")]
+      (loop [remaining-disjuncts disjuncts
+             errors []]
+        (if (empty? remaining-disjuncts)
+          ;; If we have gone through all the disjuncts, then if there are any errors, construct
+          ;; the corresponding error string and return it:
+          (when-not (empty? errors)
+            (string/join " or " errors))
+          ;; Otherwise check the next disjunct:
+          (let [err (->> (first remaining-disjuncts)
+                         (check-arg config table arg))]
+            (if-not (nil? err)
+              ;; If we got an error for this disjunct, add it to the list of errors and go on to
+              ;; the next disjunct:
+              (recur (drop 1 remaining-disjuncts)
+                     (if (nil? err)
+                       errors
+                       (conj errors err)))
+              ;; If this disjunct is valid, then the whole expression is. Empty the list of
+              ;; remaining disjuncts to check, as well as any previous errors encountered:
+              (recur nil nil))))))
 
+    (string/starts-with? expected "named:")
+    (let [narg (subs expected 6)]
+      (cond (not= (:type arg) "named-arg")
+            (str "value must be a named argument '" narg "'")
 
+            (not= (:key arg) narg)
+            (str "named argument must be '" narg "'")))
 
-  nil)
-  ;;"error")
+    (= expected "column")
+    (cond (not= (:type arg) "string")
+          (str "value must be a string representing a column in '" table "'")
+
+          (->> config :table-details (#(get % (keyword table))) :fields
+               (not-any? #(= (-> arg :value (keyword))
+                             %)))
+          (str "'" (:value arg) "' must be a column in '" table "'"))
+
+    (= expected "expression")
+    (cond (not-any? #(= (:type arg) %) '("function" "string"))
+          (str "value must be a function or datatype")
+
+          (and (= (:type arg) "string")
+               (not (contains? (:datatypes config)
+                               (-> arg :value (keyword)))))
+          (str "'" (:value arg) "' must be a defined datatype"))
+
+    (some #(= expected %) '("field" "string"))
+    (when (not= (:type arg) expected)
+      (str "value must be a " expected))
+
+    (or (= expected "regex-sub") (= expected "regex-match"))
+    (cond (not= (:type arg) "regex")
+          (str "value must be a regex pattern")
+
+          (and (= expected "regex-sub")
+               (not (contains? arg :replace)))
+          (str "regex pattern requires a substitution")
+
+          (and (= expected "regex-match")
+               (contains? arg :replace))
+          (str "regex pattern should not have a substitution"))
+
+    :else
+    (str "Unknown argument type: " expected)))
 
 (defn- check-args
   "TODO: Add docstring here"
@@ -337,6 +393,10 @@
   (log/debug "Checking args" args)
   (let [check (:check function)
         error-str (cond
+                    (nil? check)
+                    ;; Do nothing if the function has no associated check:
+                    (do)
+
                     (fn? check)
                     (check config table-name column args)
 
@@ -367,7 +427,7 @@
                         (cond
                           ;; Zero or more:
                           (string/ends-with? e "*")
-                          (letfn [(check-zero-or-more [idx]
+                          (letfn [(check-zero-or-more [idx e]
                                     (loop [idx idx
                                            errors errors]
                                       (let [args (-> (- (count args) idx) (take-last args))
@@ -382,7 +442,7 @@
                                             (recur (+ idx 1)
                                                    errors))))))]
                             (let [e (-> (count e) (- 1) (#(subs e 0 %)))]
-                              (let [[i errors] (check-zero-or-more i)]
+                              (let [[i errors] (check-zero-or-more i e)]
                                 (recur (+ i 1)
                                        allowed-args
                                        errors
@@ -393,7 +453,7 @@
 
                           ;; One or more:
                           (string/ends-with? e "+")
-                          (letfn [(check-one-or-more [idx]
+                          (letfn [(check-one-or-more [idx e]
                                     (loop [idx idx
                                            add-msg add-msg
                                            errors errors
@@ -420,7 +480,7 @@
                                 (recur nil nil (conj errors (str "requires one or more '" e
                                                                  "' at argument " (+ i 1)))
                                        nil nil nil true)
-                                (let [[i add-msg errors break?] (check-one-or-more i)]
+                                (let [[i add-msg errors break?] (check-one-or-more i e)]
                                   (recur (+ i 1)
                                          allowed-args
                                          errors
@@ -431,7 +491,7 @@
 
                           ;; Zero or one:
                           (string/ends-with? e "?")
-                          (letfn [(check-zero-or-one [idx]
+                          (letfn [(check-zero-or-one [idx e]
                                     (let [err (check-arg config table-name (first args) e)
                                           allowed-args (+ allowed-args 1)]
                                       (if err
@@ -448,7 +508,8 @@
                                      (drop 1 check)
                                      add-msg
                                      true)
-                              (let [[allowed-args add-msg errors] (check-zero-or-one i)]
+                              (let [e (-> (count e) (- 1) (#(subs e 0 %)))
+                                    [allowed-args add-msg errors] (check-zero-or-one i e)]
                                 (recur (+ i 1)
                                        allowed-args
                                        errors
@@ -477,43 +538,45 @@
     (when error-str
       (throw (Exception. error-str)))))
 
-(defn- validate-args
-  "TODO: Add docstring here"
-  [config args table-name column]
-  (doseq [arg args]
-    (cond
-      (= (:type arg) "function")
-      (let [err (check-function config table-name column arg)]
-        (when err (throw (Exception. err))))
-
-      (= (:type arg) "field")
-      (let [table (:table arg)
-            column (:column arg)]
-        (when-not (-> config :table-details (get (keyword table)))
-          (throw (Exception. (str "unrecognized table '" table "'"))))
-        (when (->> config :table-details (#(get % (keyword table)))
-                   :fields (not-any? #(= (keyword column) %)))
-          (throw (Exception. (str "unrecognized column '" column
-                                  "' in table '" table "'"))))))))
-
 (defn- check-function
   "TODO: Add docstring here"
   [config table-name column parsed]
-  (let [condition (parsed-to-str config parsed)
-        condition-name (:name parsed)
+  (let [function-name (:name parsed)
         function (-> (:functions config)
-                     (get (keyword condition-name)))
-        args (:args parsed)]
+                     (get (keyword function-name)))
+        args (:args parsed)
+
+        validate-args
+        (fn [config args table-name column]
+          ;; TODO: Add comment here
+          (doseq [arg args]
+            (cond
+              (= (:type arg) "function")
+              (let [err (check-function config table-name column arg)]
+                (when err (throw (Exception. err))))
+
+              (= (:type arg) "field")
+              (let [table (:table arg)
+                    column (:column arg)]
+                (when-not (-> config :table-details (get (keyword table)))
+                  (throw (Exception. (str "unrecognized table '" table "'"))))
+                (when (->> config :table-details (#(get % (keyword table)))
+                           :fields (not-any? #(= (keyword column) %)))
+                  (throw (Exception. (str "unrecognized column '" column
+                                          "' in table '" table "'"))))))))]
     (cond
       (nil? function)
-      (str "unrecognized function '" condition-name "'")
+      (str "unrecognized function '" function-name "'")
 
       (spec/valid? :valve.spec.function/args args)
       (try
         (validate-args config args table-name column)
-        (check-args config function args table-name column condition-name)
+        (check-args config function args table-name column function-name)
         (catch Exception e
-          (.getMessage e)))
+          (let [condition (parsed-to-str config parsed)
+                except-msg (string/replace e #"java\.lang\.Exception: " "")]
+            (str "Arguments: (" (->> args (map #(get % :value)) (string/join ", ")) ") to function "
+                 "'" (:usage function) "' are not valid: " except-msg))))
 
       :else
       (spec/explain-str :valve.spec.function/args args))))
@@ -557,10 +620,6 @@
   [config table-name conditions rows]
   (let [parsed-conditions (->> conditions
                                (seq)
-                               ;;;;;;;;;;;;;;;;;;;;;;;;;
-                               ;; THIS IS ADDED FOR DEV ONLY
-                               ;;(take 1)
-                               ;;;;;;;;;;;;;;;;;;;;;;;;;
                                (map (fn [[column condition]]
                                       [column (build-condition config table-name
                                                                column condition)])))
@@ -575,10 +634,6 @@
                                                     (-> row (get (keyword column))))))
                              (flatten)))
                       (flatten))]
-
-    ;; TODO: Remove later:
-    ;;(clojure.pprint/pprint parsed-conditions)
-
     ;; Return any generated error messages:
     messages))
 
@@ -592,8 +647,10 @@
         messages (-> (check-rows config :valve.spec/datatype "datatype" rows row-start)
                      (concat (check-config-contents config "datatype"
                                                     datatype-conditions rows)))]
-    (doseq [row rows]
-      ;; TODO: implement this for loop:
+
+    ;; YOU ARE HERE:
+    (doseq [datatype rows]
+      ;; ...
       )
 
     [config messages]))
