@@ -16,47 +16,110 @@
 ;; TODO: Implement this function
 (defn validate-any
   "TODO: Insert docstring here"
-  [])
+  ([config args table column row-idx value message]
+   (log/debug "In function validate-any")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-any config args table column row-idx value nil)))
 
 ;; TODO: Implement this function
 (defn validate-concat
   "TODO: Insert docstring here"
-  [])
+  ([config args table column row-idx value message]
+   (log/debug "In function validate-concat")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-concat config args table column row-idx value nil)))
 
 ;; TODO: Implement this function
 (defn validate-distinct
   "TODO: Insert docstring here"
-  [])
+  ([config args table column row-idx value message]
+   (log/debug "In function validate-distinct")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-distinct config args table column row-idx value nil)))
 
 ;; TODO: Implement this function
 (defn validate-in
   "TODO: Insert docstring here"
-  [])
+  ([config args table column row-idx value message]
+   (log/debug "In function validate-in")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-in config args table column row-idx value nil)))
 
 ;; TODO: Implement this function
 (defn validate-list
   "TODO: Insert docstring here"
-  [])
+  ([config args table column row-idx value message]
+   (log/debug "In function validate-list")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-list config args table column row-idx value nil)))
 
 ;; TODO: Implement this function
 (defn validate-lookup
   "TODO: Insert docstring here"
-  [])
+  ([config args table column row-idx value message]
+   (log/debug "In function validate-lookup")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-lookup config args table column row-idx value nil)))
 
 ;; TODO: Implement this function
 (defn validate-sub
   "TODO: Insert docstring here"
-  [])
+  ([config args table column row-idx value message]
+   (log/debug "In function validate-sub")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-sub config args table column row-idx value nil)))
 
 ;; TODO: Implement this function
 (defn validate-under
   "TODO: Insert docstring here"
-  [])
+  ([config args table column row-idx value message]
+   (log/debug "In function validate-under")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-under config args table column row-idx value nil)))
 
 ;; TODO: Implement this function
 (defn validate-not
   "TODO: Insert docstring here"
-  [])
+  ([config args table column row-idx value message]
+   (log/debug "In function validate-not")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-not config args table column row-idx value nil)))
 
 ;; Builtin check functions:
 ;; TODO: Implement this function
@@ -121,7 +184,8 @@
 (def datatype-conditions
   [;; Used only for dev:
    ;;[:parent "any(datatype.parent, foo, bar, lookup(blue, grue))"]
-   [:parent "any(blank)"]
+   ;;[:parent "any(blank)"]
+   [:datatype "datatype-label"]
 
    ;; Commented out temporarily for dev:
    ;;[:datatype "datatype-label"],
@@ -234,6 +298,29 @@
       (if (= 0 divisor)
         (str column-label row-num)
         (recur divisor column-label)))))
+
+(defn error
+  "TODO: Add docstring here"
+  ([config table column row-idx message level suggestion]
+   (let [row-start (:row-start config)
+         col-idx (-> config
+                     :table-details
+                     (get (keyword table))
+                     :fields
+                     (.indexOf column))
+         row-num (if (some #(= table %) ["datatype" "field" "rule"])
+                   row-idx
+                   (+ row-idx row-start))
+         err {:table table
+              :cell (idx-to-a1 row-num (+ 1 col-idx))
+              :level level
+              :message message}]
+     (if suggestion
+       (assoc err :suggestion suggestion)
+       err)))
+
+  ([config table column row-idx message]
+   (error config table column row-idx message "ERROR" nil)))
 
 (defn- check-rows
   "TODO: Insert docstring here"
@@ -581,21 +668,62 @@
       :else
       (spec/explain-str :valve.spec.function/args args))))
 
+(defn- validate-datatype
+  "TODO: Add docstring here"
+  [config condition table column row-idx value]
+  (letfn [(find-ancestors [datatypes datatype]
+            (let [parent (-> datatypes (get (keyword datatype)) :parent)]
+              (when-not (empty? parent)
+                (into [parent] (find-ancestors datatypes parent)))))]
+    (let [datatypes (:datatypes config)
+          dname (:value condition)
+          ancestors (into [dname] (find-ancestors datatypes dname))]
+      (loop [ancestors ancestors]
+        (if-not (first ancestors)
+          []
+          (let [datatype (get datatypes (keyword dname))
+                value (or value "")
+                message (if-not (:message datatype)
+                          (str "'" value "' must be of datatype '" dname "'")
+                          (-> (:message datatype)
+                              (string/replace #"\{table\}" table)
+                              (string/replace #"\{column\}" (name column))
+                              (string/replace #"\{row-idx\}" (str row-idx))
+                              (string/replace #"\{condition\}" (parsed-to-str config condition))
+                              (string/replace #"\{value\}" value)))
+                level (get datatype :level "ERROR")
+                match (:match datatype)]
+            (if (and match
+                     (->> value (re-matches match) (not)))
+              (let [replace (:replace datatype)
+                    pattern #"s/(.+[^\\]|.*(?<!/)/.*[^\\])/(.+[^\\]|.*(?<!/)/.*[^\\])/(.*)"
+                    suggestion (when replace
+                                 (->> replace
+                                      (re-matches pattern)
+                                      ((fn [[_ pattern replacement]]
+                                         (string/replace value pattern replacement)))))]
+                (-> (error config table column row-idx message level suggestion)
+                    (vector)))
+              (recur (drop 1 ancestors)))))))))
+
 (defn- validate-condition
   "TODO: Add docstring here"
-  [config condition table-name column row-idx value]
-  ;; TODO: Implement this function
-  (cond
-    (= (:type condition) "function")
-    (do)
+  ([config condition table-name column row-idx value message]
+   (cond
+     (= (:type condition) "function")
+     (let [args (:args condition)
+           func-key (-> condition :name (keyword))
+           func (-> config :functions (get func-key) :validate)]
+       (func config args table-name column row-idx value message))
 
-    (= (:type condition) "string")
-    (do)
+     (= (:type condition) "string")
+     (validate-datatype config condition table-name column row-idx value)
 
-    :else
-    (throw (Exception. (str "Invalid condition: '" condition "'"))))
+     :else
+     (throw (Exception. (str "Invalid condition: '" condition "'")))))
 
-  [])
+  ([config condition table-name column row-idx value]
+   (validate-condition config condition table-name column row-idx value nil)))
 
 (defn- build-condition
   "TODO: Insert docstring here"
@@ -721,7 +849,6 @@
          config {:functions functions :table-details table-details :row-start row-start}
 
          ;; Load datatype, field, and rule configuration - stop process on any problems
-         ;; IN PROGRESS:
          [config setup-messages] (configure-datatypes config row-start)
          ;; TODO NEXT:
          [config setup-messages] (configure-fields config)
