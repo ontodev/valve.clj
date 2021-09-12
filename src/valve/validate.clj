@@ -7,7 +7,7 @@
             [clojure.string :as string]
             [clojure.walk :refer [keywordize-keys]]
             [valve.log :as log]
-            [valve.parse :refer [parse-condition]]
+            [valve.parse :refer [parse]]
             ;; We need to load this dependency, even if we never explicitly reference it, in order
             ;; to bring the :valve.spec/... namespaces into scope.
             [valve.spec]))
@@ -195,6 +195,11 @@
    ;;[:replace "any(blank, regex-sub)"]
    ])
 
+(def field-conditions
+  [[:table "not(blank)"]
+   [:column "not(blank)"]
+   [:condition "not(blank)"]])
+
 (defn- check-custom
   "TODO: Insert docstring here"
   [[func-name details custom-namespace]]
@@ -253,18 +258,18 @@
   (->> fixed-paths
        (map (fn [path]
               (with-open [reader (io/reader path)]
-                (let [table-name (-> path (io/file) (.getName)
-                                     (string/replace #"\.(c|t)sv$" ""))
+                (let [table (-> path (io/file) (.getName)
+                                (string/replace #"\.(c|t)sv$" ""))
                       sep (if (string/ends-with? path ".csv")
                             \,
                             \tab)
                       [header & data] (doall (csv/read-csv reader :separator sep))
                       header (->> header (map keyword))
-                      data (if (some #(= table-name %) ["field" "rule" "datatype"])
+                      data (if (some #(= table %) ["field" "rule" "datatype"])
                              data
                              (-> (- row-start 2) (drop data)))]
 
-                  {table-name
+                  {table
                    {:path path
                     :fields (->> header (map keyword))
                     ;; For error reporting purposes we need the order of the headers to
@@ -324,43 +329,41 @@
 
 (defn- check-rows
   "TODO: Insert docstring here"
-  [config spec table-name rows row-start]
-  (let [messages
-        (->> rows
-             (map-indexed
-              (fn [idx row]
-                (when-not (spec/valid? spec row)
-                  (let [{problems ::spec/problems
-                         value ::spec/value} (spec/explain-data spec row)]
-                    (->> problems
-                         (map
-                          (fn [problem]
-                            (hash-map
-                             :table table-name
-                             :cell (let [col-num (->> problem
-                                                      :path
-                                                      (first)
-                                                      (.indexOf (keys value))
-                                                      (+ 1))
-                                         row-num (if (some #(= table-name %)
-                                                           ["field" "rule" "datatype"])
-                                                   idx
-                                                   (+ row-start idx))]
-                                     (idx-to-a1 row-num col-num))
-                             :level (->> value
-                                         :level
-                                         (#(if (spec/valid? :valve.spec/level %)
-                                             %
-                                             "ERROR")))
-                             :message (str
-                                       (-> problem :path first)  " has value "
-                                       (:val problem) " that does not "
-                                       "conform to " (:pred problem))
-                             :suggestion (:suggestion value)))))))))
-             (remove nil?)
-             (flatten))]
-    ;; Return the list of error messages:
-    messages))
+  [config spec table rows row-start]
+  ;; Returns a list of error messages
+  (->> rows
+       (map-indexed
+        (fn [idx row]
+          (when-not (spec/valid? spec row)
+            (let [{problems ::spec/problems
+                   value ::spec/value} (spec/explain-data spec row)]
+              (->> problems
+                   (map
+                    (fn [problem]
+                      (hash-map
+                       :table table
+                       :cell (let [col-num (->> problem
+                                                :path
+                                                (first)
+                                                (.indexOf (keys value))
+                                                (+ 1))
+                                   row-num (if (some #(= table %)
+                                                     ["field" "rule" "datatype"])
+                                             idx
+                                             (+ row-start idx))]
+                               (idx-to-a1 row-num col-num))
+                       :level (->> value
+                                   :level
+                                   (#(if (spec/valid? :valve.spec/level %)
+                                       %
+                                       "ERROR")))
+                       :message (str
+                                 (-> problem :path first)  " has value "
+                                 (:val problem) " that does not "
+                                 "conform to " (:via problem))
+                       :suggestion (:suggestion value)))))))))
+       (remove nil?)
+       (flatten)))
 
 (defn- parsed-to-str
   "TODO: Insert docstring here"
@@ -476,7 +479,7 @@
 
 (defn- check-args
   "TODO: Add docstring here"
-  [config function args table-name column condition-name]
+  [config function args table column condition-name]
   (log/debug "Checking args" args)
   (let [check (:check function)
         error-str (cond
@@ -485,7 +488,7 @@
                     (do)
 
                     (fn? check)
-                    (check config table-name column args)
+                    (check config table column args)
 
                     (not (vector? check))
                     (throw (Exception. (str "'check' value for " condition-name
@@ -521,7 +524,7 @@
                                             a (first args)]
                                         (if-not a
                                           [idx errors]
-                                          (let [err (check-arg config table-name a e)
+                                          (let [err (check-arg config table a e)
                                                 errors (if-not err
                                                          errors
                                                          (conj errors (str "optional argument "
@@ -549,7 +552,7 @@
                                             a (first args)]
                                         (if-not a
                                           [idx add-msg errors break?]
-                                          (let [err (check-arg config table-name a e)]
+                                          (let [err (check-arg config table a e)]
                                             (if err
                                               (if (first check)
                                                 [idx (str " or " err) errors true]
@@ -579,7 +582,7 @@
                           ;; Zero or one:
                           (string/ends-with? e "?")
                           (letfn [(check-zero-or-one [idx e]
-                                    (let [err (check-arg config table-name (first args) e)
+                                    (let [err (check-arg config table (first args) e)
                                           allowed-args (+ allowed-args 1)]
                                       (if err
                                         (if (first check)
@@ -611,7 +614,7 @@
                             (recur nil nil (conj errors (str "requires one '" e
                                                              "' at argument " (+ i 1)))
                                    nil nil nil true)
-                            (let [err (check-arg config table-name (first args) e)
+                            (let [err (check-arg config table (first args) e)
                                   errors (if-not err
                                            errors
                                            (conj errors (str "argument " (+ i 1) " " err)))]
@@ -627,7 +630,7 @@
 
 (defn- check-function
   "TODO: Add docstring here"
-  [config table-name column parsed]
+  [config table column parsed]
   (let [function-name (:name parsed)
         function (-> (:functions config)
                      (get (keyword function-name)))
@@ -639,7 +642,7 @@
           (doseq [arg args]
             (cond
               (= (:type arg) "function")
-              (let [err (check-function config table-name column arg)]
+              (let [err (check-function config table column arg)]
                 (when err (throw (Exception. err))))
 
               (= (:type arg) "field")
@@ -658,7 +661,7 @@
       (spec/valid? :valve.spec.function/args args)
       (try
         (validate-args)
-        (check-args config function args table-name column function-name)
+        (check-args config function args table column function-name)
         (catch Exception e
           (let [condition (parsed-to-str config parsed)
                 except-msg (string/replace e #"java\.lang\.Exception: " "")]
@@ -708,48 +711,56 @@
 
 (defn- validate-condition
   "TODO: Add docstring here"
-  ([config condition table-name column row-idx value message]
+  ([config condition table column row-idx value message]
    (cond
      (= (:type condition) "function")
      (let [args (:args condition)
            func-key (-> condition :name (keyword))
            func (-> config :functions (get func-key) :validate)]
-       (func config args table-name column row-idx value message))
+       (func config args table column row-idx value message))
 
      (= (:type condition) "string")
-     (validate-datatype config condition table-name column row-idx value)
+     (validate-datatype config condition table column row-idx value)
 
      :else
      (throw (Exception. (str "Invalid condition: '" condition "'")))))
 
-  ([config condition table-name column row-idx value]
-   (validate-condition config condition table-name column row-idx value nil)))
+  ([config condition table column row-idx value]
+   (validate-condition config condition table column row-idx value nil)))
+
+(defn- parse-condition
+  "TODO: Insert docstring here"
+  [config table column condition]
+  (let [parsed (parse condition)]
+    (cond
+      (= (:type parsed) "function")
+      (let [err (check-function config table column parsed)]
+        (if err
+          [nil, err]
+          [parsed, nil]))
+
+      (= (:type parsed) "string")
+      (if-not (-> config :datatypes (contains? (-> parsed :value keyword)))
+        [nil, (str "Unrecognised datatype '" (:value parsed) "'")]
+        [parsed, nil])
+
+      :else
+      [nil, (str "Invalid condition '" condition "'")])))
 
 (defn- build-condition
   "TODO: Insert docstring here"
-  [config table-name column condition]
-  (let [parsed (parse-condition condition)]
-    (cond
-      (= (:type parsed) "function")
-      (let [err (check-function config table-name column parsed)]
-        (when err (throw (Exception. err))))
-
-      (= (:type parsed) "string")
-      (when-not (-> config :datatypes (contains? (-> parsed :value keyword)))
-        (throw (Exception. (str "Unrecognised datatype '" (:value parsed) "'"))))
-
-      :else
-      (throw (Exception. (str "Invalid condition '" condition "'"))))
-    ;; Return the parsed condition:
+  [config table column condition]
+  (let [[parsed err] (parse-condition config table column condition)]
+    (when err (throw (Exception. err)))
     parsed))
 
 (defn- check-config-contents
   "TODO: Add docstring here"
-  [config table-name conditions rows]
+  [config table conditions rows]
   (let [parsed-conditions (->> conditions
                                (seq)
                                (map (fn [[column condition]]
-                                      [column (build-condition config table-name
+                                      [column (build-condition config table
                                                                column condition)])))
         row-idx (:row-start config)
         messages (->> (for [row rows]
@@ -757,7 +768,7 @@
                              (seq)
                              (map-indexed
                               (fn [idx [column condition]]
-                                (validate-condition config condition table-name column
+                                (validate-condition config condition table column
                                                     (-> config :row-start (+ idx))
                                                     (-> row (get (keyword column))))))
                              (flatten)))
@@ -767,12 +778,13 @@
 
 (defn- configure-datatypes
   "TODO: Add docstring here"
-  [config row-start]
+  [[config messages] row-start]
   (let [datatype (or (-> config :table-details :datatype)
                      (throw (Exception. "Missing table 'datatype'")))
         rows (:rows datatype)
         config (-> config (assoc :datatypes default-datatypes))
-        messages (-> (check-rows config :valve.spec/datatype "datatype" rows row-start)
+        messages (-> messages
+                     (concat (check-rows config :valve.spec/datatype "datatype" rows row-start))
                      (concat (check-config-contents config "datatype"
                                                     datatype-conditions rows)))]
     ;; Loop through the datatype records and add the corresponding datatype information to our
@@ -798,19 +810,222 @@
           ;; We are done. Return the new config as well as any error messages:
           [config messages])))))
 
-;; TODO: Implement this function
+(defn- get-tree-options
+  "TODO: Add docstring here"
+  [tree-function]
+  (let [args (:args tree-function)]
+    (cond
+      (-> args (count) (#(or (> % 3) (< % 1))))
+      [nil "the `tree` function must have between one and three arguments"]
+
+      ;; First arg is column
+      (->> args (first) (#(or (not (instance? java.util.Map %))
+                              (-> % :type (not= "string")))))
+      [nil "the first argument of the `tree` function must be a column name"]
+
+      :else
+      (loop [add-tree-name nil
+             split-char nil
+             x 1]
+        (if-not (< x (count args))
+          [{:child-column (-> args (first) :value)
+            :add-tree-name add-tree-name
+            :split-char split-char}
+           nil]
+          (let [arg (nth args x)]
+            (cond
+              (and (contains? arg :key) (-> arg :key (= "split")))
+              (recur add-tree-name (:value arg) (+ x 1))
+
+              (contains? arg :table)
+              (recur (str (:table arg) "." (:column arg)) split-char (+ x 1))
+
+              :else
+              [nil (str "`tree` argument " (+ x 1)
+                        " must be a table.column pair or split=CHAR")])))))))
+
+(defn- build-tree
+  "TODO: Add docstring here"
+  ([config fn-row-idx table-name parent-column child-column add-tree-name split-char]
+   (let [table-details (:table-details config)
+         row-start (:row-start config)
+         rows (-> table-details (get (keyword table-name)) :rows)
+         col-idx (-> table-details (get (keyword table-name)) :fields (.indexOf parent-column))
+         trees (get config :trees {})
+         ;; tree is a hash-map of sets:
+         tree (get trees (keyword add-tree-name))
+         allowed-values (->> rows
+                             (map #(get % (keyword child-column)))
+                             (concat (keys tree)))
+         split-raw (fn [token split-char]
+                     ;; Clojure doesn't provide a function for splitting a string other than with
+                     ;; a regular expression, so we implement it ourselves:
+                     (if-not split-char
+                       [token]
+                       (loop [token token
+                              results []]
+                         (let [end-index (.indexOf token split-char)
+                               result (subs token 0 (if (= end-index -1)
+                                                      (count token)
+                                                      end-index))]
+                           (if (not= end-index -1)
+                             (recur (subs token (+ 1 end-index) (count token))
+                                    (conj results result))
+                             (conj results result))))))]
+
+     (if (and add-tree-name (not (contains? trees (keyword add-tree-name))))
+       [nil [{:message (str add-tree-name "must be defined before using it in a function")}]]
+       (loop [row-idx row-start
+              remaining-rows rows
+              errors []
+              tree tree]
+         (if-not (empty? remaining-rows)
+           (let [row (first remaining-rows)
+                 parent (get row (keyword parent-column))
+                 child (get row (keyword child-column))]
+             (cond
+               (or (nil? parent) (-> parent (string/trim) (empty?)))
+               (->> (if (contains? tree (keyword child))
+                      tree
+                      (assoc tree (keyword child) #{}))
+                    (recur (+ row-idx 1) (drop 1 remaining-rows) errors))
+
+               :else
+               (let [folks (-> parent (split-raw split-char))
+                     errors (->> folks ;; `parents` and `ancestors` are reserved words in clojure
+                                 (map
+                                  (fn [parent]
+                                    (when (not-any? #(= parent %) allowed-values)
+                                      {:table table-name
+                                       :cell (idx-to-a1 row-idx (+ col-idx 1))
+                                       :rule-id (str "field:" fn-row-idx)
+                                       :level "ERROR"
+                                       :message (str "'" parent "' from "
+                                                     table-name "." parent-column
+                                                     " must exist in "
+                                                     table-name "." child-column
+                                                     (when add-tree-name
+                                                       (str " or " add-tree-name " tree")))})))
+                                 (concat errors)
+                                 (remove nil?))
+                     tree (let [curr-parents (get tree (keyword child))]
+                            (assoc tree
+                                   (keyword child)
+                                   (-> tree
+                                       (get (keyword child))
+                                       (concat folks)
+                                       (set))))]
+                 (recur (+ row-idx 1) (drop 1 remaining-rows) errors tree))))
+
+           ;; End of loop
+           [tree errors])))))
+
+  ([config fn-row-idx table-name parent-column child-column]
+   (build-tree config fn-row-idx table-name parent-column child-column nil "|")))
+
 (defn- configure-fields
   "TODO: Add docstring here"
-  [config]
-  (let [messages []]
-    [config messages]))
+  [[config messages] row-start]
+  (when-not (-> config :table-details (contains? :field))
+    (throw (Exception. "missing table 'field'")))
+
+  (let [rows (-> config :table-details :field :rows)
+        fields (-> config :table-details :field :fields)
+        messages (-> messages
+                     (concat (check-rows config :valve.spec/field "field" rows row-start))
+                     (concat (check-config-contents config "field" field-conditions rows)))
+        row-idx (-> config :row-start (- 1))]
+    (loop [remaining-rows rows
+           row-idx row-idx
+           trees {}
+           table-fields {}
+           config config
+           messages messages]
+      (if (empty? remaining-rows)
+        ;; Once we are done, return the possibly modified config as well as any error messages:
+        [config messages]
+        ;; Otherwise continue to loop:
+        (let [row-idx (+ row-idx 1)
+              row (first remaining-rows)
+              table (:table row)
+              column (:column row)
+              field-types (-> table-fields (get (keyword table)
+                                                {}))]
+          (cond
+            (and (not= table "*")
+                 (-> config :table-details (contains? (keyword table)) (not)))
+            (->> (conj messages
+                       (error config "field" "table" row-idx
+                              (str "unrecognized table '" table "'")))
+                 (recur (drop 1 remaining-rows) row-idx trees table-fields config))
+
+            (and (not= table "*")
+                 (->> config :table-details (#(get % (keyword table)))
+                      :fields (map name) (some #(= column %)) (not)))
+            (->> (conj messages
+                       (error config "field" "column" row-idx
+                              (str "unrecognized column '" column "' for table '"
+                                   table "'")))
+                 (recur (drop 1 remaining-rows) row-idx trees table-fields config))
+
+            ;; Check that this table.column pair has not already been defined:
+            (contains? field-types (keyword column))
+            (->> (conj messages
+                       (error config "field" "column" row-idx
+                              (str "Multiple conditions defined for '" table "." column "'")))
+                 (recur (drop 1 remaining-rows) row-idx trees table-fields config))
+
+            :else
+            (let [[parsed-condition err] (->> (:condition row)
+                                              (parse-condition config table column))]
+              (cond
+                err
+                (->> (conj messages
+                           (error config "field" "condition" row-idx err))
+                     (recur (drop 1 remaining-rows) row-idx trees table-fields config))
+
+                (and (-> parsed-condition :type (= "function"))
+                     (-> parsed-condition :name (= "tree")))
+                (let [[tree-opts err] (get-tree-options parsed-condition)]
+                  (if err
+                    (->> (conj messages
+                               (error config "field" "condition" row-idx err))
+                         (recur (drop 1 remaining-rows) row-idx trees table-fields config))
+                    (let [[tree errs] (build-tree config row-idx table column
+                                                  (:child-column tree-opts)
+                                                  (:add-tree-name tree-opts)
+                                                  (:split-char tree-opts))
+                          config (if tree
+                                   (->> (str table "." column)
+                                        (keyword)
+                                        (#(hash-map % tree))
+                                        (assoc config :trees))
+                                   config)
+                          messages (if-not (empty? errs)
+                                     (->> errs
+                                          (map #(if (contains? % :table)
+                                                  %
+                                                  (assoc %
+                                                         :table "field"
+                                                         :cell (idx-to-a1 row-idx
+                                                                          (.indexOf
+                                                                           fields "condition"))
+                                                         :rule "tree function error"
+                                                         :level "ERROR")))
+                                          (concat messages))
+                                     messages)]
+                      (recur (drop 1 remaining-rows) row-idx trees table-fields config messages))))
+
+                :else
+                ;; Otherwise add to table-fields
+                (recur (drop 1 remaining-rows) row-idx trees table-fields config messages)))))))))
 
 ;; TODO: Implement this function
 (defn- configure-rules
   "TODO: Add docstring here"
-  [config]
-  (let [messages []]
-    [config messages]))
+  [[config messages] row-start]
+
+  [config messages])
 
 (defn validate
   "TODO: Insert docstring here"
@@ -849,10 +1064,10 @@
          config {:functions functions :table-details table-details :row-start row-start}
 
          ;; Load datatype, field, and rule configuration - stop process on any problems
-         [config setup-messages] (configure-datatypes config row-start)
-         ;; TODO NEXT:
-         [config setup-messages] (configure-fields config)
-         [config setup-messages] (configure-rules config)
+         [config setup-messages] (-> [config []]
+                                     (configure-datatypes row-start)
+                                     (configure-fields row-start)
+                                     (configure-rules row-start))
 
          ;; TODO:
          kill-messages (do)
@@ -860,10 +1075,12 @@
          ;; TODO: Run validation
          messages (do)]
 
-     ;;(pprint functions)
-     ;;(pprint fixed-paths)
-     ;;(pprint table-details)
-     ;;(pprint setup-messages)
+     (-> (with-out-str
+           ;;(pprint functions)
+           ;;(pprint fixed-paths)
+           ;;(pprint table-details)
+           (pprint setup-messages))
+         (log/info))
 
      ;; TODO: Return messages, logging an error if the list is not empty.
      (or messages [])))

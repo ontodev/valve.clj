@@ -72,7 +72,7 @@
       :else
       first-value)))
 
-(defn parse-condition
+(defn parse
   "Given a condition, use VALVE's grammar to generate a map containing the condition's type and
   its value, where the latter can in general be composed of further conditions."
   [condition]

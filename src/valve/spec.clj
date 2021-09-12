@@ -17,6 +17,15 @@
                                              :valve.spec.datatype/match
                                              :valve.spec.datatype/level]))
 
+(s/def :valve.spec.field/table string?)
+(s/def :valve.spec.field/column string?)
+(s/def :valve.spec.field/condition string?)
+
+(s/def :valve.spec/field (s/keys :req-un [:valve.spec.field/table
+                                          :valve.spec.field/column
+                                          :valve.spec.field/condition]
+                                 :opt-un [:valve.spec/level]))
+
 (s/def :valve.spec.argument.string/type #(= % "string"))
 (s/def :valve.spec.argument.string/value string?)
 
