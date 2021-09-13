@@ -3,6 +3,7 @@
             [clojure.java.io :as io]
             ;; TODO: pprint is used for debugging during dev. Remove this dependency later.
             [clojure.pprint :refer [pprint]]
+            [clojure.set :refer [rename-keys]]
             [clojure.spec.alpha :as spec]
             [clojure.string :as string]
             [clojure.walk :refer [keywordize-keys]]
@@ -126,7 +127,8 @@
 (defn check-lookup
   "TODO: Insert docstring here"
   [config table column args]
-  (println "In check-lookup function"))
+  ;;(println "In check-lookup function"))
+  )
 
 (def default-datatypes
   {:blank {:datatype "blank"
@@ -185,20 +187,27 @@
   [;; Used only for dev:
    ;;[:parent "any(datatype.parent, foo, bar, lookup(blue, grue))"]
    ;;[:parent "any(blank)"]
-   [:datatype "datatype-label"]
+   ;;[:datatype "datatype-label"]
 
-   ;; Commented out temporarily for dev:
-   ;;[:datatype "datatype-label"],
-   ;;[:parent "any(blank, in(datatype.datatype))"]
-   ;;[:match "any(blank, regex)"]
-   ;;[:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
-   ;;[:replace "any(blank, regex-sub)"]
-   ])
+   ;; Good code:
+   [:datatype "datatype-label"],
+   [:parent "any(blank, in(datatype.datatype))"]
+   [:match "any(blank, regex)"]
+   [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
+   [:replace "any(blank, regex-sub)"]])
 
 (def field-conditions
   [[:table "not(blank)"]
    [:column "not(blank)"]
    [:condition "not(blank)"]])
+
+(def rule-conditions
+  [[:table "not(blank)"]
+   [:when-column "not(blank)"]
+   [:when-condition "not(blank)"]
+   [:then-column "not(blank)"]
+   [:then-condition "not(blank)"]
+   [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]])
 
 (defn- check-custom
   "TODO: Insert docstring here"
@@ -860,6 +869,7 @@
          split-raw (fn [token split-char]
                      ;; Clojure doesn't provide a function for splitting a string other than with
                      ;; a regular expression, so we implement it ourselves:
+                     ;; TODO: allow for `split-char` to have length > 1
                      (if-not split-char
                        [token]
                        (loop [token token
@@ -869,6 +879,7 @@
                                                       (count token)
                                                       end-index))]
                            (if (not= end-index -1)
+                             ;; CHANGE (+ 1 to (+ (count split-char) (but don't re-evaluate every time)
                              (recur (subs token (+ 1 end-index) (count token))
                                     (conj results result))
                              (conj results result))))))]
@@ -922,6 +933,90 @@
 
   ([config fn-row-idx table-name parent-column child-column]
    (build-tree config fn-row-idx table-name parent-column child-column nil "|")))
+
+;; TODO: Implement this function
+(defn- configure-rules
+  "TODO: Add docstring here"
+  [[config messages] row-start]
+  (if-not (-> config :table-details (contains? :rule))
+    ;; Rule table is optional. If it is not present just return the config and error messages
+    ;; back unchanged:
+    [config messages]
+    ;; Otherwise configure the rules:
+    (let [rows (->> config :table-details :rule :rows
+                    (map #(rename-keys % {(keyword "when column") :when-column
+                                          (keyword "when condition") :when-condition
+                                          (keyword "then column") :then-column
+                                          (keyword "then condition") :then-condition})))
+          messages (-> messages
+                       (concat (check-rows config :valve.spec/rule "rule" rows row-start))
+                       (concat (check-config-contents config "rule" rule-conditions rows)))]
+      (let [table-rules {}
+            row-idx (-> (:row-start config) (- 1))]
+        (loop [remaining-rows rows
+               row-idx row-idx
+               column-rules {}
+               table-rules {}
+               rules []
+               messages messages]
+          (if (empty? remaining-rows)
+            ;; Once we are done, return the possibly modified config as well as any error messages:
+            [(assoc config :table-rules table-rules) messages]
+            ;; Otherwise continue the loop:
+            (let [row-idx (+ row-idx 1)
+                  row (first remaining-rows)
+                  table (:table row)
+                  column-rules (get table-rules (keyword table) {})
+                  whencol (:when-column row)
+                  thencol (:then-column row)
+                  whencond (:when-condition row)
+                  thencond (:then-condition row)
+                  rules (get column-rules (keyword whencol) [])]
+              (cond
+                (-> config :table-details (contains? (keyword table)) (not))
+                (->> (conj messages
+                           (error config "rule" "table" row-idx
+                                  (str "unrecognized table '" table "'")))
+                     (recur (drop 1 remaining-rows) row-idx column-rules table-rules rules))
+
+                (->> config :table-details (#(get % (keyword table))) :fields
+                     (some #(= (keyword whencol) %)) (not))
+                (->> (conj messages
+                           (error config "rule" "when column" row-idx
+                                  (str "unrecognized column '" whencol "' for table '" table "'")))
+                     (recur (drop 1 remaining-rows) row-idx column-rules table-rules rules))
+
+                (->> config :table-details (#(get % (keyword table))) :fields
+                     (some #(= (keyword thencol) %)) (not))
+                (->> (conj messages
+                           (error config "rule" "then column" row-idx
+                                  (str "unrecognized column '" thencol "' for table '" table "'")))
+                     (recur (drop 1 remaining-rows) row-idx column-rules table-rules rules))
+
+                :else
+                (let [[parsed-when err-when] (parse-condition config table whencol whencond)
+                      [parsed-then err-then] (parse-condition config table thencol thencond)]
+                  (cond
+                    err-when
+                    (->> (conj messages (error config "rule" "then condition" row-idx err-when))
+                         (recur (drop 1 remaining-rows) row-idx column-rules table-rules rules))
+
+                    err-then
+                    (->> (conj messages (error config "rule" "then condition" row-idx err-then))
+                         (recur (drop 1 remaining-rows) row-idx column-rules table-rules rules))
+
+                    :else
+                    (let [rules (conj rules
+                                      {:when-condition parsed-when
+                                       :column thencol
+                                       :then-condition parsed-then
+                                       :level (get row :level "ERROR")
+                                       :message (get row :message)
+                                       :rule-id row-idx})
+                          column-rules (assoc column-rules (keyword whencol) rules)
+                          table-rules (assoc table-rules (keyword table) column-rules)]
+                      (recur (drop 1 remaining-rows) row-idx column-rules table-rules rules
+                             messages))))))))))))
 
 (defn- configure-fields
   "TODO: Add docstring here"
@@ -1020,13 +1115,6 @@
                 ;; Otherwise add to table-fields
                 (recur (drop 1 remaining-rows) row-idx trees table-fields config messages)))))))))
 
-;; TODO: Implement this function
-(defn- configure-rules
-  "TODO: Add docstring here"
-  [[config messages] row-start]
-
-  [config messages])
-
 (defn validate
   "TODO: Insert docstring here"
   ([paths custom-functions custom-namespace distinct-messages row-start]
@@ -1079,8 +1167,11 @@
            ;;(pprint functions)
            ;;(pprint fixed-paths)
            ;;(pprint table-details)
-           (pprint setup-messages))
+           ;;(pprint setup-messages))
+           (->> setup-messages (filter #(= "rule" (:table %))) (pprint)))
          (log/info))
+
+     (pprint config)
 
      ;; TODO: Return messages, logging an error if the list is not empty.
      (or messages [])))
