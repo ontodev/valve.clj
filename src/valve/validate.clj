@@ -709,7 +709,7 @@
                      (->> value (re-matches match) (not)))
               (let [replace (:replace datatype)
                     pattern #"s/(.+[^\\]|.*(?<!/)/.*[^\\])/(.+[^\\]|.*(?<!/)/.*[^\\])/(.*)"
-                    suggestion (when replace
+                    suggestion (when-not (empty? replace)
                                  (->> replace
                                       (re-matches pattern)
                                       ((fn [[_ pattern replacement]]
@@ -1117,9 +1117,73 @@
 
 (defn- validate-table
   "TODO: Insert docstring here"
+  ;; Note: `table` is a keyword.
   [config table]
+  (let [table-name (name table)
+        table-details (:table-details config)
+        fields (merge (:table-fields config)
+                      (-> config :table-fields (get :* {})))
+        rules (merge (-> config :table-rules (get table {}))
+                     (-> config :*))
+        rows (-> table-details table :rows)
 
-  [{:table table :cell "ZZ99" :level "ERROR" :rule-id "field:7" :message "Argghh!!!"}])
+        check-for-field-type
+        (fn [field value row-idx]
+          (let [value (or value "")]
+            (when (contains? fields field)
+              (let [parsed-type (-> fields field :parsed)
+                    error-message (-> fields field :message)
+                    messages (validate-condition config parsed-type table-name field
+                                                 row-idx value error-message)]
+                (->> messages
+                     (map #(assoc %
+                                  :rule-id (->> fields field :field-id
+                                                (str "field:"))
+                                  :level "ERROR")))))))
+
+        check-for-rules
+        (fn [field value row-idx row]
+          (when (and (not-empty rules) (contains? rules field))
+            (->> rules
+                 field
+                 (map (fn [rule]
+                        (let [whencond (:when-condition rule)
+                              messages (validate-condition config whencond table-name field
+                                                           row-idx value)]
+                          (when (empty? messages)
+                            (let [thencol (:column rule)
+                                  thenval (or (get row (keyword thencol))
+                                              "")
+                                  messages (validate-condition config
+                                                               (:then-condition rule)
+                                                               table-name
+                                                               thencol
+                                                               row-idx
+                                                               thenval
+                                                               (:message rule))]
+                              (when-not (empty? messages)
+                                (->> messages
+                                     (map #(let [msg (if (:message rule)
+                                                       (:message %)
+                                                       (str "because '" value "' is '"
+                                                            (parsed-to-str config whencond) "', "
+                                                            (:message %)))]
+                                             (assoc %
+                                                    :rule-id (str "rule:" (:rule-id rule))
+                                                    :level (:level rule)
+                                                    :message msg)))))))))))))]
+    (->> rows
+         (map-indexed
+          (fn [row-idx row]
+            (->> row
+                 (map
+                  (fn [[field value]]
+                    (into (check-for-field-type field value row-idx)
+                          (check-for-rules field value row-idx row))))
+                 (flatten))))
+         (flatten)
+         (remove nil?)
+         (#(or % '())))))
 
 (defn collect-distinct-messages
   "TODO: Insert docstring here"
