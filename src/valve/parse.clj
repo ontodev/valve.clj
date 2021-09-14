@@ -79,7 +79,6 @@
   (let [condition-parser (-> "valve_grammar.ebnf"
                              (io/resource)
                              (insta/parser))]
-    (log/debug (str "Parsing condition: '" condition "'"))
     (let [result (-> condition (condition-parser))]
       (if (insta/failure? result)
         (log/error "Parsing failed due to reason:" (insta/get-failure result))

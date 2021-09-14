@@ -1115,6 +1115,16 @@
                 ;; Otherwise add to table-fields
                 (recur (drop 1 remaining-rows) row-idx trees table-fields config messages)))))))))
 
+(defn- validate-table
+  "TODO: Insert docstring here"
+  [config table]
+
+  [{:table table :cell "ZZ99" :level "ERROR" :rule-id "field:7" :message "Argghh!!!"}])
+
+(defn collect-distinct-messages
+  "TODO: Insert docstring here"
+  [])
+
 (defn validate
   "TODO: Insert docstring here"
   ([paths custom-functions custom-namespace distinct-messages row-start]
@@ -1157,24 +1167,36 @@
                                      (configure-fields row-start)
                                      (configure-rules row-start))
 
-         ;; TODO:
-         kill-messages (do)
+         kill-messages (->> setup-messages
+                            (filter (fn [msg]
+                                      (some #(= (:table msg) %) '("datatype" "field" "rule")))))]
 
-         ;; TODO: Run validation
-         messages (do)]
+     (if-not (empty? kill-messages)
+       (do
+         (log/error "VALVE configuration completed with" (count kill-messages) "errors")
+         kill-messages)
+       (let [messages (->> table-details
+                           (keys)
+                           (filter (fn [table] (not-any? #(= table %) '(:datatype :field :rule))))
+                           (map (fn [table]
+                                  (log/info "Validating" table)
+                                  (let [add-messages (->> setup-messages
+                                                          (filter #(= (name table) (:table %)))
+                                                          (concat (validate-table config table)))]
+                                    (log/info (count add-messages) "problems found in table" table)
+                                    (if (and (not-empty add-messages) (not-empty distinct-messages))
+                                      (let [table-path (-> table-details (get table) :path)
+                                            update-errors (collect-distinct-messages)]
+                                        update-errors)
+                                      add-messages))))
+                           (apply concat))]
 
-     (-> (with-out-str
-           ;;(pprint functions)
-           ;;(pprint fixed-paths)
-           ;;(pprint table-details)
-           ;;(pprint setup-messages))
-           (->> setup-messages (filter #(= "rule" (:table %))) (pprint)))
-         (log/info))
+         (when-not (empty? messages)
+           (log/error "VALVE completed with" (count messages) "problems found!")
+           (doseq [msg messages]
+             (println msg)))
 
-     (pprint config)
-
-     ;; TODO: Return messages, logging an error if the list is not empty.
-     (or messages [])))
+         messages))))
 
   ([paths distinct-messages row-start]
    (validate paths {} nil distinct-messages row-start)))
