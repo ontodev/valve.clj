@@ -1187,7 +1187,64 @@
 
 (defn collect-distinct-messages
   "TODO: Insert docstring here"
-  [])
+  [table-details output-dir table messages]
+  (let [distinct-messages (->> messages
+                               (map #(assoc {} (-> % :message (keyword))
+                                            %))
+                               (apply merge))
+        message-rows (->> distinct-messages
+                          (seq)
+                          (map second)
+                          ((fn [messages]
+                             (loop [messages messages
+                                    message-rows {}]
+                               (let [msg (first messages)]
+                                 (if msg
+                                   (let [row-num (-> msg
+                                                     :cell
+                                                     (string/replace #"[^\d]+(\d+)$" "$1")
+                                                     (Integer/parseInt))
+                                         row-messages (get message-rows row-num)]
+                                     (recur (drop 1 messages)
+                                            (->> msg
+                                                 (conj row-messages)
+                                                 (assoc message-rows row-num))))
+                                   ;; If there are no more messages left to process, return the
+                                   ;; generated rows:
+                                   message-rows))))))
+        basename (-> table (io/file) (.getName))
+        [table-name table-ext] (-> basename (string/split #"\." 2))
+        sep (if (= "csv" table-ext) \, \tab)
+        output (str output-dir "/" table-name "_distinct." table-ext)
+        fields (-> table-details (get (keyword table-name)) :fields)
+        rows (-> table-details (get (keyword table-name)) :rows)]
+
+    (log/info (count distinct-messages) "distinct error(s) found in" table)
+    (log/info "writing rows with errors to" output)
+    (with-open [writer (io/writer output)]
+      (csv/write-csv writer (->> fields (map name) (vector))
+                     :separator sep)
+      (loop [rows rows
+             messages []
+             row-idx 2
+             new-idx 2]
+        (let [row (first rows)]
+          (if row
+            (if (contains? message-rows row-idx)
+              (let [messages (->> (get message-rows row-idx)
+                                  (map (fn [msg]
+                                         (assoc msg
+                                                :table (str table-name "_distinct")
+                                                :cell (-> msg
+                                                          :cell
+                                                          (string/replace #"^([^\d]+)\d+" "$1")
+                                                          (str new-idx)))))
+                                  (concat messages))]
+                (csv/write-csv writer (vector row) :separator sep)
+                (recur (drop 1 rows) messages (+ 1 row-idx) (+ 1 new-idx)))
+              (recur (drop 1 rows) messages (+ 1 row-idx) new-idx))
+            ;; If there are no more rows to process, return the generated messages:
+            messages))))))
 
 (defn validate
   "TODO: Insert docstring here"
@@ -1239,21 +1296,25 @@
        (do
          (log/error "VALVE configuration completed with" (count kill-messages) "errors")
          kill-messages)
-       (let [messages (->> table-details
-                           (keys)
-                           (filter (fn [table] (not-any? #(= table %) '(:datatype :field :rule))))
-                           (map (fn [table]
-                                  (log/info "Validating" table)
-                                  (let [add-messages (->> setup-messages
-                                                          (filter #(= (name table) (:table %)))
-                                                          (concat (validate-table config table)))]
-                                    (log/info (count add-messages) "problems found in table" table)
-                                    (if (and (not-empty add-messages) (not-empty distinct-messages))
-                                      (let [table-path (-> table-details (get table) :path)
-                                            update-errors (collect-distinct-messages)]
-                                        update-errors)
-                                      add-messages))))
-                           (apply concat))]
+       (let [messages
+             (->> table-details
+                  (keys)
+                  (filter (fn [table] (not-any? #(= table %) '(:datatype :field :rule))))
+                  (map (fn [table]
+                         (log/info "Validating" table)
+                         (let [add-messages (->> setup-messages
+                                                 (filter #(= (name table) (:table %)))
+                                                 (concat (validate-table config table)))]
+                           (log/info (count add-messages) "problems found in table" table)
+                           (if (and (not-empty add-messages) (not-empty distinct-messages))
+                             (let [table-path (-> table-details (get table) :path)
+                                   update-errors (collect-distinct-messages table-details
+                                                                            distinct-messages
+                                                                            table-path
+                                                                            add-messages)]
+                               update-errors)
+                             add-messages))))
+                  (apply concat))]
 
          (when-not (empty? messages)
            (log/error "VALVE completed with" (count messages) "problems found!")
