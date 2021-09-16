@@ -742,14 +742,45 @@
             ;; If there are no more rows to process, return the generated messages:
             messages))))))
 
-;; TODO: Implement this function
+;; Builtin validate functions
 (defn validate-any
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   (log/debug "In function validate-any")
+   (let [conditions
+         (loop [remaining-args args
+                conditions []]
+           (let [arg (first remaining-args)]
+             (if arg
+               (if (empty? (validate-condition config arg table column row-idx value))
+                 ;; If any one of the args are valid, then the list as a whole is valid, so send
+                 ;; back an empty list of error messages:
+                 []
+                 ;; Otherwise add the arg to the list of failures:
+                 (recur (drop 1 remaining-args)
+                        (conj conditions
+                              (parsed-to-str config arg))))
+               ;; If there are no more args, exit the loop with the list of problematic conditions:
+               conditions)))]
 
-   ;; Return empty list:
-   [])
+     (if (empty? conditions)
+       ;; If there were no problematic conditions, then send back an empty list:
+       []
+       ;; Otherwise ...
+       (let [message (if message
+                       (-> message
+                           (string/replace #"\{table\}" table)
+                           (string/replace #"\{column\}" (name column))
+                           (string/replace #"\{row-idx\}" (str row-idx))
+                           (string/replace #"\{condition\}" (parsed-to-str config
+                                                                           {:type "function"
+                                                                            :name "any"
+                                                                            :args args}))
+                           (string/replace #"\{value\}" value))
+                       (str "'" value "' must meet one of: " (string/join ", " conditions)))]
+         (error config table column row-idx message)))))
+
+  ([config args table column row-idx value]
+   (validate-any config args table column row-idx value nil)))
 
 ;; TODO: Implement this function
 (defn validate-concat
@@ -875,15 +906,11 @@
 
 (def default-functions
   {:any {"usage" "any(expression+)"
-
-         ;; TODO: Changed temporarily for dev:
-         ;;"check" ["expression+"]
          "check" ["expression+"]
-
          "validate" validate-any}
    :concat {"usage" "concat(value+)"
-                                 "check" ["(expression or string)+"]
-                                 "validate" validate-concat}
+            "check" ["(expression or string)+"]
+            "validate" validate-concat}
    :distinct {"usage" "distinct(expression)"
               "check" ["expression" "field*"]
               "validate" validate-distinct}
