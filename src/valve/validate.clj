@@ -13,289 +13,6 @@
             ;; to bring the :valve.spec/... namespaces into scope.
             [valve.spec]))
 
-;; Builtin validate functions
-;; TODO: Implement this function
-(defn validate-any
-  "TODO: Insert docstring here"
-  ([config args table column row-idx value message]
-   (log/debug "In function validate-any")
-
-   ;; Return empty list:
-   [])
-
-  ([config args table column row-idx value]
-   (validate-any config args table column row-idx value nil)))
-
-;; TODO: Implement this function
-(defn validate-concat
-  "TODO: Insert docstring here"
-  ([config args table column row-idx value message]
-   (log/debug "In function validate-concat")
-
-   ;; Return empty list:
-   [])
-
-  ([config args table column row-idx value]
-   (validate-concat config args table column row-idx value nil)))
-
-;; TODO: Implement this function
-(defn validate-distinct
-  "TODO: Insert docstring here"
-  ([config args table column row-idx value message]
-   (log/debug "In function validate-distinct")
-
-   ;; Return empty list:
-   [])
-
-  ([config args table column row-idx value]
-   (validate-distinct config args table column row-idx value nil)))
-
-;; TODO: Implement this function
-(defn validate-in
-  "TODO: Insert docstring here"
-  ([config args table column row-idx value message]
-   (log/debug "In function validate-in")
-
-   ;; Return empty list:
-   [])
-
-  ([config args table column row-idx value]
-   (validate-in config args table column row-idx value nil)))
-
-;; TODO: Implement this function
-(defn validate-list
-  "TODO: Insert docstring here"
-  ([config args table column row-idx value message]
-   (log/debug "In function validate-list")
-
-   ;; Return empty list:
-   [])
-
-  ([config args table column row-idx value]
-   (validate-list config args table column row-idx value nil)))
-
-;; TODO: Implement this function
-(defn validate-lookup
-  "TODO: Insert docstring here"
-  ([config args table column row-idx value message]
-   (log/debug "In function validate-lookup")
-
-   ;; Return empty list:
-   [])
-
-  ([config args table column row-idx value]
-   (validate-lookup config args table column row-idx value nil)))
-
-;; TODO: Implement this function
-(defn validate-sub
-  "TODO: Insert docstring here"
-  ([config args table column row-idx value message]
-   (log/debug "In function validate-sub")
-
-   ;; Return empty list:
-   [])
-
-  ([config args table column row-idx value]
-   (validate-sub config args table column row-idx value nil)))
-
-;; TODO: Implement this function
-(defn validate-under
-  "TODO: Insert docstring here"
-  ([config args table column row-idx value message]
-   (log/debug "In function validate-under")
-
-   ;; Return empty list:
-   [])
-
-  ([config args table column row-idx value]
-   (validate-under config args table column row-idx value nil)))
-
-;; TODO: Implement this function
-(defn validate-not
-  "TODO: Insert docstring here"
-  ([config args table column row-idx value message]
-   (log/debug "In function validate-not")
-
-   ;; Return empty list:
-   [])
-
-  ([config args table column row-idx value]
-   (validate-not config args table column row-idx value nil)))
-
-;; Builtin check functions:
-;; TODO: Implement this function
-(defn check-lookup
-  "TODO: Insert docstring here"
-  [config table column args]
-  ;;(println "In check-lookup function"))
-  )
-
-(def default-datatypes
-  {:blank {:datatype "blank"
-           :parent ""
-           :match #"^$"
-           :level "ERROR"}
-   :datatype-label {:datatype "datatype-label"
-                    :parent ""
-                    :match #"[A-Za-z][A-Za-z0-9_-]+"
-                    :level "ERROR"}
-   :regex {:datatype "regex"
-           :parent ""
-           :match #"^/.+/$"
-           :level "ERROR"}
-   :regex-sub {:datatype "regex-sub"
-               :parent ""
-               :match #"^s/.+[^\\]|.*(?<!/)/.*[^\\]/.+[^\\]|.*(?<!/)/.*[^\\]/.*$"
-               :level "ERROR"}})
-
-(def default-functions {:any {"usage" "any(expression+)"
-
-                              ;; TODO: Changed temporarily for dev:
-                              ;;"check" ["expression+"]
-                              "check" ["expression+"]
-
-                              "validate" validate-any}
-                        :concat {"usage" "concat(value+)"
-                                 "check" ["(expression or string)+"]
-                                 "validate" validate-concat}
-                        :distinct {"usage" "distinct(expression)"
-                                   "check" ["expression" "field*"]
-                                   "validate" validate-distinct}
-                        :in {"usage" "in(value+)"
-                             "check" ["(string or field)+" "named:match_case?"]
-                             "validate" validate-in}
-                        :list {"usage" "list(str, expression)"
-                               "check" ["string" "expression"]
-                               "validate" validate-list}
-                        :lookup {"usage" "lookup(table, column, column)"
-                                 "check" check-lookup
-                                 "validate" validate-lookup}
-                        :not {"usage" "not(expression)"
-                              "check" ["expression"]
-                              "validate" validate-not}
-                        :sub {"usage" "sub(regex, expression)"
-                              "check" ["regex-sub" "expression"]
-                              "validate" validate-sub}
-                        :tree {"usage" "tree(column, [treename, named=bool])"
-                               "check" ["column" "field?" "named:split?"]
-                               "validate" nil}
-                        :under {"usage" "under(treename, str, [direct=bool])"
-                                "check" ["field" "string" "named:direct?"]
-                                "validate" validate-under}})
-
-(def datatype-conditions
-  [;; Used only for dev:
-   ;;[:parent "any(datatype.parent, foo, bar, lookup(blue, grue))"]
-   ;;[:parent "any(blank)"]
-   ;;[:datatype "datatype-label"]
-
-   ;; Good code:
-   [:datatype "datatype-label"],
-   [:parent "any(blank, in(datatype.datatype))"]
-   [:match "any(blank, regex)"]
-   [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
-   [:replace "any(blank, regex-sub)"]])
-
-(def field-conditions
-  [[:table "not(blank)"]
-   [:column "not(blank)"]
-   [:condition "not(blank)"]])
-
-(def rule-conditions
-  [[:table "not(blank)"]
-   [:when-column "not(blank)"]
-   [:when-condition "not(blank)"]
-   [:then-column "not(blank)"]
-   [:then-condition "not(blank)"]
-   [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]])
-
-(defn- check-custom
-  "TODO: Insert docstring here"
-  [[func-name details custom-namespace]]
-  (when (contains? default-functions func-name)
-    (throw (Exception.
-            (str "Custom function: " func-name " duplicates a builtin function name"))))
-
-  (when-not (contains? details "validate")
-    (throw (Exception. (str "Details of " func-name " must include a 'validate' key"))))
-
-  (let [qualified-name (->> func-name (name) (str custom-namespace "/validate-"))
-        ;; See https://stackoverflow.com/a/1748508/8599709
-        params (->> qualified-name
-                    (symbol)
-                    (ns-resolve *ns*)
-                    (meta)
-                    :arglists
-                    (#(if (> (count %) 1)
-                        (throw
-                         (Exception.
-                          (str "Custom function: " qualified-name " has "
-                               "more than one argument list")))
-                        (first %)))
-                    (map name))]
-    (when-not (= (nth params 0) "config")
-      (throw (Exception. (str "'" qualified-name "' argument 1 must be 'config'"))))
-    (when-not (= (nth params 1) "args")
-      (throw (Exception. (str "'" qualified-name "' argument 2 must be 'args'"))))
-    (when-not (= (nth params 2) "table")
-      (throw (Exception. (str "'" qualified-name "' argument 3 must be 'table'"))))
-    (when-not (= (nth params 3) "column")
-      (throw (Exception. (str "'" qualified-name "' argument 4 must be 'column'"))))
-    (when-not (= (nth params 4) "row-idx")
-      (throw (Exception. (str "'" qualified-name "' argument 5 must be 'row-idx'"))))
-    (when-not (= (nth params 5) "value")
-      (throw (Exception. (str "'" qualified-name "' argument 6 must be 'value'"))))
-
-    ;; After validating the given custom function's details, return them unchanged:
-    [func-name details]))
-
-(defn- check-for-duplicates
-  "TODO: Insert docstring here"
-  [fixed-paths]
-  (when-not (->> fixed-paths
-                 (map #(string/split % #"/"))
-                 (map last)
-                 (map #(string/replace % #"\..*$" ""))
-                 (apply distinct?))
-    (throw (Exception.
-            (str "Input paths: " (vec fixed-paths) " contain duplicate table names"))))
-  fixed-paths)
-
-(defn- get-table-details
-  "TODO: Insert docstring here"
-  [fixed-paths row-start]
-  (->> fixed-paths
-       (map (fn [path]
-              (with-open [reader (io/reader path)]
-                (let [table (-> path (io/file) (.getName)
-                                (string/replace #"\.(c|t)sv$" ""))
-                      sep (if (string/ends-with? path ".csv")
-                            \,
-                            \tab)
-                      [header & data] (doall (csv/read-csv reader :separator sep))
-                      header (->> header (map keyword))
-                      data (if (some #(= table %) ["field" "rule" "datatype"])
-                             data
-                             (-> (- row-start 2) (drop data)))]
-
-                  {table
-                   {:path path
-                    :fields (->> header (map keyword))
-                    ;; For error reporting purposes we need the order of the headers to
-                    ;; be preserved in the generated rows. Zipmap, the simplest way of
-                    ;; associating header fields with each row column, does not preserve
-                    ;; order, so we need to use the following more complicated method
-                    ;; involving array-map instead:
-                    :rows (->> data
-                               (map (fn [row]
-                                      (->> row
-                                           (map-indexed (fn [idx column]
-                                                          (array-map (nth header idx)
-                                                                     (nth row idx))))
-                                           (apply merge)))))}}))))
-       (apply merge)
-       (keywordize-keys)))
-
 (defn- idx-to-a1
   "TODO: Insert docstring here"
   [row-num col-num]
@@ -336,49 +53,9 @@
   ([config table column row-idx message]
    (error config table column row-idx message "ERROR" nil)))
 
-(defn- check-rows
-  "TODO: Insert docstring here"
-  [config spec table rows row-start]
-  ;; Returns a list of error messages
-  (->> rows
-       (map-indexed
-        (fn [idx row]
-          (when-not (spec/valid? spec row)
-            (let [{problems ::spec/problems
-                   value ::spec/value} (spec/explain-data spec row)]
-              (->> problems
-                   (map
-                    (fn [problem]
-                      (hash-map
-                       :table table
-                       :cell (let [col-num (->> problem
-                                                :path
-                                                (first)
-                                                (.indexOf (keys value))
-                                                (+ 1))
-                                   row-num (if (some #(= table %)
-                                                     ["field" "rule" "datatype"])
-                                             idx
-                                             (+ row-start idx))]
-                               (idx-to-a1 row-num col-num))
-                       :level (->> value
-                                   :level
-                                   (#(if (spec/valid? :valve.spec/level %)
-                                       %
-                                       "ERROR")))
-                       :message (str
-                                 (-> problem :path first)  " has value "
-                                 (:val problem) " that does not "
-                                 "conform to " (:via problem))
-                       :suggestion (:suggestion value)))))))))
-       (remove nil?)
-       (flatten)))
-
 (defn- parsed-to-str
   "TODO: Insert docstring here"
   [config condition]
-  (log/debug "Unparsing condition:" condition)
-
   (let [cond-type (:type condition)]
     (cond
       (= cond-type "string")
@@ -489,7 +166,6 @@
 (defn- check-args
   "TODO: Add docstring here"
   [config function args table column condition-name]
-  (log/debug "Checking args" args)
   (let [check (:check function)
         error-str (cond
                     (nil? check)
@@ -785,40 +461,6 @@
     ;; Return any generated error messages:
     messages))
 
-(defn- configure-datatypes
-  "TODO: Add docstring here"
-  [[config messages] row-start]
-  (let [datatype (or (-> config :table-details :datatype)
-                     (throw (Exception. "Missing table 'datatype'")))
-        rows (:rows datatype)
-        config (-> config (assoc :datatypes default-datatypes))
-        messages (-> messages
-                     (concat (check-rows config :valve.spec/datatype "datatype" rows row-start))
-                     (concat (check-config-contents config "datatype"
-                                                    datatype-conditions rows)))]
-    ;; Loop through the datatype records and add the corresponding datatype information to our
-    ;; configuration:
-    (loop [config config
-           rows rows]
-      (let [dt-rec (first rows)]
-        (if-not (nil? dt-rec)
-          ;; More records to process:
-          (let [match (:match dt-rec)
-                dt-rec (if (empty? match)
-                         dt-rec
-                         (->> match
-                              (re-find #"/(.+)/")
-                              (second)
-                              (re-pattern)
-                              (assoc dt-rec :match)))
-                dt-key (-> dt-rec :datatype (keyword))]
-            (recur (->> (assoc {} dt-key dt-rec)
-                        (merge (:datatypes config))
-                        (assoc config :datatypes))
-                   (drop 1 rows)))
-          ;; We are done. Return the new config as well as any error messages:
-          [config messages])))))
-
 (defn- get-tree-options
   "TODO: Add docstring here"
   [tree-function]
@@ -934,7 +576,477 @@
   ([config fn-row-idx table-name parent-column child-column]
    (build-tree config fn-row-idx table-name parent-column child-column nil "|")))
 
+(defn- get-table-details
+  "TODO: Insert docstring here"
+  [fixed-paths row-start]
+  (->> fixed-paths
+       (map (fn [path]
+              (with-open [reader (io/reader path)]
+                (let [table (-> path (io/file) (.getName)
+                                (string/replace #"\.(c|t)sv$" ""))
+                      sep (if (string/ends-with? path ".csv")
+                            \,
+                            \tab)
+                      [header & data] (doall (csv/read-csv reader :separator sep))
+                      header (->> header (map keyword))
+                      data (if (some #(= table %) ["field" "rule" "datatype"])
+                             data
+                             (-> (- row-start 2) (drop data)))]
+
+                  {table
+                   {:path path
+                    :fields (->> header (map keyword))
+                    ;; For error reporting purposes we need the order of the headers to
+                    ;; be preserved in the generated rows. Zipmap, the simplest way of
+                    ;; associating header fields with each row column, does not preserve
+                    ;; order, so we need to use the following more complicated method
+                    ;; involving array-map instead:
+                    :rows (->> data
+                               (map (fn [row]
+                                      (->> row
+                                           (map-indexed (fn [idx column]
+                                                          (array-map (nth header idx)
+                                                                     (nth row idx))))
+                                           (apply merge)))))}}))))
+       (apply merge)
+       (keywordize-keys)))
+
+(defn- validate-table
+  "TODO: Insert docstring here"
+  ;; Note: `table` is a keyword.
+  [config table]
+  (let [table-name (name table)
+        table-details (:table-details config)
+        fields (merge (:table-fields config)
+                      (-> config :table-fields (get :* {})))
+        rules (merge (-> config :table-rules (get table {}))
+                     (-> config :*))
+        rows (-> table-details table :rows)
+
+        check-for-field-type
+        (fn [field value row-idx]
+          (let [value (or value "")]
+            (when (contains? fields field)
+              (let [parsed-type (-> fields field :parsed)
+                    error-message (-> fields field :message)
+                    messages (validate-condition config parsed-type table-name field
+                                                 row-idx value error-message)]
+                (->> messages
+                     (map #(assoc %
+                                  :rule-id (->> fields field :field-id
+                                                (str "field:"))
+                                  :level "ERROR")))))))
+
+        check-for-rules
+        (fn [field value row-idx row]
+          (when (and (not-empty rules) (contains? rules field))
+            (->> rules
+                 field
+                 (map (fn [rule]
+                        (let [whencond (:when-condition rule)
+                              messages (validate-condition config whencond table-name field
+                                                           row-idx value)]
+                          (when (empty? messages)
+                            (let [thencol (:column rule)
+                                  thenval (or (get row (keyword thencol))
+                                              "")
+                                  messages (validate-condition config
+                                                               (:then-condition rule)
+                                                               table-name
+                                                               thencol
+                                                               row-idx
+                                                               thenval
+                                                               (:message rule))]
+                              (when-not (empty? messages)
+                                (->> messages
+                                     (map #(let [msg (if (:message rule)
+                                                       (:message %)
+                                                       (str "because '" value "' is '"
+                                                            (parsed-to-str config whencond) "', "
+                                                            (:message %)))]
+                                             (assoc %
+                                                    :rule-id (str "rule:" (:rule-id rule))
+                                                    :level (:level rule)
+                                                    :message msg)))))))))))))]
+    (->> rows
+         (map-indexed
+          (fn [row-idx row]
+            (->> row
+                 (map
+                  (fn [[field value]]
+                    (into (check-for-field-type field value row-idx)
+                          (check-for-rules field value row-idx row))))
+                 (flatten))))
+         (flatten)
+         (remove nil?)
+         (#(or % '())))))
+
+(defn collect-distinct-messages
+  "TODO: Insert docstring here"
+  [table-details output-dir table messages]
+  (let [distinct-messages (->> messages
+                               (map #(assoc {} (-> % :message (keyword))
+                                            %))
+                               (apply merge))
+        message-rows (->> distinct-messages
+                          (seq)
+                          (map second)
+                          ((fn [messages]
+                             (loop [messages messages
+                                    message-rows {}]
+                               (let [msg (first messages)]
+                                 (if msg
+                                   (let [row-num (-> msg
+                                                     :cell
+                                                     (string/replace #"[^\d]+(\d+)$" "$1")
+                                                     (Integer/parseInt))
+                                         row-messages (get message-rows row-num)]
+                                     (recur (drop 1 messages)
+                                            (->> msg
+                                                 (conj row-messages)
+                                                 (assoc message-rows row-num))))
+                                   ;; If there are no more messages left to process, return the
+                                   ;; generated rows:
+                                   message-rows))))))
+        basename (-> table (io/file) (.getName))
+        [table-name table-ext] (-> basename (string/split #"\." 2))
+        sep (if (= "csv" table-ext) \, \tab)
+        output (str output-dir "/" table-name "_distinct." table-ext)
+        fields (-> table-details (get (keyword table-name)) :fields)
+        rows (-> table-details (get (keyword table-name)) :rows)]
+
+    (log/info (count distinct-messages) "distinct error(s) found in" table)
+    (log/info "writing rows with errors to" output)
+    (with-open [writer (io/writer output)]
+      (csv/write-csv writer (->> fields (map name) (vector))
+                     :separator sep)
+      (loop [rows rows
+             messages []
+             row-idx 2
+             new-idx 2]
+        (let [row (first rows)]
+          (if row
+            (if (contains? message-rows row-idx)
+              (let [messages (->> (get message-rows row-idx)
+                                  (map (fn [msg]
+                                         (assoc msg
+                                                :table (str table-name "_distinct")
+                                                :cell (-> msg
+                                                          :cell
+                                                          (string/replace #"^([^\d]+)\d+" "$1")
+                                                          (str new-idx)))))
+                                  (concat messages))]
+                (csv/write-csv writer (vector row) :separator sep)
+                (recur (drop 1 rows) messages (+ 1 row-idx) (+ 1 new-idx)))
+              (recur (drop 1 rows) messages (+ 1 row-idx) new-idx))
+            ;; If there are no more rows to process, return the generated messages:
+            messages))))))
+
 ;; TODO: Implement this function
+(defn validate-any
+  "TODO: Insert docstring here"
+  ([config args table column row-idx value message]
+   (log/debug "In function validate-any")
+
+   ;; Return empty list:
+   [])
+
+;; TODO: Implement this function
+(defn validate-concat
+  "TODO: Insert docstring here"
+  ([config args table column row-idx value message]
+   ;;(log/debug "In function validate-concat")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-concat config args table column row-idx value nil)))
+
+;; TODO: Implement this function
+(defn validate-distinct
+  "TODO: Insert docstring here"
+  ([config args table column row-idx value message]
+   ;;(log/debug "In function validate-distinct")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-distinct config args table column row-idx value nil)))
+
+;; TODO: Implement this function
+(defn validate-in
+  "TODO: Insert docstring here"
+  ([config args table column row-idx value message]
+   ;;(log/debug "In function validate-in")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-in config args table column row-idx value nil)))
+
+;; TODO: Implement this function
+(defn validate-list
+  "TODO: Insert docstring here"
+  ([config args table column row-idx value message]
+   ;;(log/debug "In function validate-list")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-list config args table column row-idx value nil)))
+
+;; TODO: Implement this function
+(defn validate-lookup
+  "TODO: Insert docstring here"
+  ([config args table column row-idx value message]
+   ;;(log/debug "In function validate-lookup")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-lookup config args table column row-idx value nil)))
+
+;; TODO: Implement this function
+(defn validate-sub
+  "TODO: Insert docstring here"
+  ([config args table column row-idx value message]
+   ;;(log/debug "In function validate-sub")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-sub config args table column row-idx value nil)))
+
+;; TODO: Implement this function
+(defn validate-under
+  "TODO: Insert docstring here"
+  ([config args table column row-idx value message]
+   ;;(log/debug "In function validate-under")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-under config args table column row-idx value nil)))
+
+;; TODO: Implement this function
+(defn validate-not
+  "TODO: Insert docstring here"
+  ([config args table column row-idx value message]
+   ;;(log/debug "In function validate-not")
+
+   ;; Return empty list:
+   [])
+
+  ([config args table column row-idx value]
+   (validate-not config args table column row-idx value nil)))
+
+;; Builtin check functions:
+;; TODO: Implement this function
+(defn check-lookup
+  "TODO: Insert docstring here"
+  [config table column args]
+  ;;(println "In check-lookup function"))
+  )
+
+(def default-datatypes
+  {:blank {:datatype "blank"
+           :parent ""
+           :match #"^$"
+           :level "ERROR"}
+   :datatype-label {:datatype "datatype-label"
+                    :parent ""
+                    :match #"[A-Za-z][A-Za-z0-9_-]+"
+                    :level "ERROR"}
+   :regex {:datatype "regex"
+           :parent ""
+           :match #"^/.+/$"
+           :level "ERROR"}
+   :regex-sub {:datatype "regex-sub"
+               :parent ""
+               :match #"^s/.+[^\\]|.*(?<!/)/.*[^\\]/.+[^\\]|.*(?<!/)/.*[^\\]/.*$"
+               :level "ERROR"}})
+
+(def default-functions
+  {:any {"usage" "any(expression+)"
+
+         ;; TODO: Changed temporarily for dev:
+         ;;"check" ["expression+"]
+         "check" ["expression+"]
+
+         "validate" validate-any}
+   :concat {"usage" "concat(value+)"
+                                 "check" ["(expression or string)+"]
+                                 "validate" validate-concat}
+   :distinct {"usage" "distinct(expression)"
+              "check" ["expression" "field*"]
+              "validate" validate-distinct}
+   :in {"usage" "in(value+)"
+        "check" ["(string or field)+" "named:match_case?"]
+        "validate" validate-in}
+   :list {"usage" "list(str, expression)"
+          "check" ["string" "expression"]
+          "validate" validate-list}
+   :lookup {"usage" "lookup(table, column, column)"
+            "check" check-lookup
+            "validate" validate-lookup}
+   :not {"usage" "not(expression)"
+         "check" ["expression"]
+         "validate" validate-not}
+   :sub {"usage" "sub(regex, expression)"
+         "check" ["regex-sub" "expression"]
+         "validate" validate-sub}
+   :tree {"usage" "tree(column, [treename, named=bool])"
+          "check" ["column" "field?" "named:split?"]
+          "validate" nil}
+   :under {"usage" "under(treename, str, [direct=bool])"
+           "check" ["field" "string" "named:direct?"]
+           "validate" validate-under}})
+
+(def datatype-conditions
+  [;; Used only for dev:
+   ;;[:parent "any(datatype.parent, foo, bar, lookup(blue, grue))"]
+   ;;[:parent "any(blank)"]
+   ;;[:datatype "datatype-label"]
+
+   ;; Good code:
+   [:datatype "datatype-label"],
+   [:parent "any(blank, in(datatype.datatype))"]
+   [:match "any(blank, regex)"]
+   [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
+   [:replace "any(blank, regex-sub)"]])
+
+(def field-conditions
+  [[:table "not(blank)"]
+   [:column "not(blank)"]
+   [:condition "not(blank)"]])
+
+(def rule-conditions
+  [[:table "not(blank)"]
+   [:when-column "not(blank)"]
+   [:when-condition "not(blank)"]
+   [:then-column "not(blank)"]
+   [:then-condition "not(blank)"]
+   [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]])
+
+(defn- check-custom
+  "TODO: Insert docstring here"
+  [[func-name details custom-namespace]]
+  (when (contains? default-functions func-name)
+    (throw (Exception.
+            (str "Custom function: " func-name " duplicates a builtin function name"))))
+
+  (when-not (contains? details "validate")
+    (throw (Exception. (str "Details of " func-name " must include a 'validate' key"))))
+
+  (let [qualified-name (->> func-name (name) (str custom-namespace "/validate-"))
+        ;; See https://stackoverflow.com/a/1748508/8599709
+        params (->> qualified-name
+                    (symbol)
+                    (ns-resolve *ns*)
+                    (meta)
+                    :arglists
+                    (#(if (> (count %) 1)
+                        (throw
+                         (Exception.
+                          (str "Custom function: " qualified-name " has "
+                               "more than one argument list")))
+                        (first %)))
+                    (map name))]
+    (when-not (= (nth params 0) "config")
+      (throw (Exception. (str "'" qualified-name "' argument 1 must be 'config'"))))
+    (when-not (= (nth params 1) "args")
+      (throw (Exception. (str "'" qualified-name "' argument 2 must be 'args'"))))
+    (when-not (= (nth params 2) "table")
+      (throw (Exception. (str "'" qualified-name "' argument 3 must be 'table'"))))
+    (when-not (= (nth params 3) "column")
+      (throw (Exception. (str "'" qualified-name "' argument 4 must be 'column'"))))
+    (when-not (= (nth params 4) "row-idx")
+      (throw (Exception. (str "'" qualified-name "' argument 5 must be 'row-idx'"))))
+    (when-not (= (nth params 5) "value")
+      (throw (Exception. (str "'" qualified-name "' argument 6 must be 'value'"))))
+
+    ;; After validating the given custom function's details, return them unchanged:
+    [func-name details]))
+
+(defn- check-rows
+  "TODO: Insert docstring here"
+  [config spec table rows row-start]
+  ;; Returns a list of error messages
+  (->> rows
+       (map-indexed
+        (fn [idx row]
+          (when-not (spec/valid? spec row)
+            (let [{problems ::spec/problems
+                   value ::spec/value} (spec/explain-data spec row)]
+              (->> problems
+                   (map
+                    (fn [problem]
+                      (hash-map
+                       :table table
+                       :cell (let [col-num (->> problem
+                                                :path
+                                                (first)
+                                                (.indexOf (keys value))
+                                                (+ 1))
+                                   row-num (if (some #(= table %)
+                                                     ["field" "rule" "datatype"])
+                                             idx
+                                             (+ row-start idx))]
+                               (idx-to-a1 row-num col-num))
+                       :level (->> value
+                                   :level
+                                   (#(if (spec/valid? :valve.spec/level %)
+                                       %
+                                       "ERROR")))
+                       :message (str
+                                 (-> problem :path first)  " has value "
+                                 (:val problem) " that does not "
+                                 "conform to " (:via problem))
+                       :suggestion (:suggestion value)))))))))
+       (remove nil?)
+       (flatten)))
+
+(defn- configure-datatypes
+  "TODO: Add docstring here"
+  [[config messages] row-start]
+  (let [datatype (or (-> config :table-details :datatype)
+                     (throw (Exception. "Missing table 'datatype'")))
+        rows (:rows datatype)
+        config (-> config (assoc :datatypes default-datatypes))
+        messages (-> messages
+                     (concat (check-rows config :valve.spec/datatype "datatype" rows row-start))
+                     (concat (check-config-contents config "datatype"
+                                                    datatype-conditions rows)))]
+    ;; Loop through the datatype records and add the corresponding datatype information to our
+    ;; configuration:
+    (loop [config config
+           rows rows]
+      (let [dt-rec (first rows)]
+        (if-not (nil? dt-rec)
+          ;; More records to process:
+          (let [match (:match dt-rec)
+                dt-rec (if (empty? match)
+                         dt-rec
+                         (->> match
+                              (re-find #"/(.+)/")
+                              (second)
+                              (re-pattern)
+                              (assoc dt-rec :match)))
+                dt-key (-> dt-rec :datatype (keyword))]
+            (recur (->> (assoc {} dt-key dt-rec)
+                        (merge (:datatypes config))
+                        (assoc config :datatypes))
+                   (drop 1 rows)))
+          ;; We are done. Return the new config as well as any error messages:
+          [config messages])))))
+
 (defn- configure-rules
   "TODO: Add docstring here"
   [[config messages] row-start]
@@ -1115,136 +1227,17 @@
                 ;; Otherwise add to table-fields
                 (recur (drop 1 remaining-rows) row-idx trees table-fields config messages)))))))))
 
-(defn- validate-table
+(defn- check-for-duplicates
   "TODO: Insert docstring here"
-  ;; Note: `table` is a keyword.
-  [config table]
-  (let [table-name (name table)
-        table-details (:table-details config)
-        fields (merge (:table-fields config)
-                      (-> config :table-fields (get :* {})))
-        rules (merge (-> config :table-rules (get table {}))
-                     (-> config :*))
-        rows (-> table-details table :rows)
-
-        check-for-field-type
-        (fn [field value row-idx]
-          (let [value (or value "")]
-            (when (contains? fields field)
-              (let [parsed-type (-> fields field :parsed)
-                    error-message (-> fields field :message)
-                    messages (validate-condition config parsed-type table-name field
-                                                 row-idx value error-message)]
-                (->> messages
-                     (map #(assoc %
-                                  :rule-id (->> fields field :field-id
-                                                (str "field:"))
-                                  :level "ERROR")))))))
-
-        check-for-rules
-        (fn [field value row-idx row]
-          (when (and (not-empty rules) (contains? rules field))
-            (->> rules
-                 field
-                 (map (fn [rule]
-                        (let [whencond (:when-condition rule)
-                              messages (validate-condition config whencond table-name field
-                                                           row-idx value)]
-                          (when (empty? messages)
-                            (let [thencol (:column rule)
-                                  thenval (or (get row (keyword thencol))
-                                              "")
-                                  messages (validate-condition config
-                                                               (:then-condition rule)
-                                                               table-name
-                                                               thencol
-                                                               row-idx
-                                                               thenval
-                                                               (:message rule))]
-                              (when-not (empty? messages)
-                                (->> messages
-                                     (map #(let [msg (if (:message rule)
-                                                       (:message %)
-                                                       (str "because '" value "' is '"
-                                                            (parsed-to-str config whencond) "', "
-                                                            (:message %)))]
-                                             (assoc %
-                                                    :rule-id (str "rule:" (:rule-id rule))
-                                                    :level (:level rule)
-                                                    :message msg)))))))))))))]
-    (->> rows
-         (map-indexed
-          (fn [row-idx row]
-            (->> row
-                 (map
-                  (fn [[field value]]
-                    (into (check-for-field-type field value row-idx)
-                          (check-for-rules field value row-idx row))))
-                 (flatten))))
-         (flatten)
-         (remove nil?)
-         (#(or % '())))))
-
-(defn collect-distinct-messages
-  "TODO: Insert docstring here"
-  [table-details output-dir table messages]
-  (let [distinct-messages (->> messages
-                               (map #(assoc {} (-> % :message (keyword))
-                                            %))
-                               (apply merge))
-        message-rows (->> distinct-messages
-                          (seq)
-                          (map second)
-                          ((fn [messages]
-                             (loop [messages messages
-                                    message-rows {}]
-                               (let [msg (first messages)]
-                                 (if msg
-                                   (let [row-num (-> msg
-                                                     :cell
-                                                     (string/replace #"[^\d]+(\d+)$" "$1")
-                                                     (Integer/parseInt))
-                                         row-messages (get message-rows row-num)]
-                                     (recur (drop 1 messages)
-                                            (->> msg
-                                                 (conj row-messages)
-                                                 (assoc message-rows row-num))))
-                                   ;; If there are no more messages left to process, return the
-                                   ;; generated rows:
-                                   message-rows))))))
-        basename (-> table (io/file) (.getName))
-        [table-name table-ext] (-> basename (string/split #"\." 2))
-        sep (if (= "csv" table-ext) \, \tab)
-        output (str output-dir "/" table-name "_distinct." table-ext)
-        fields (-> table-details (get (keyword table-name)) :fields)
-        rows (-> table-details (get (keyword table-name)) :rows)]
-
-    (log/info (count distinct-messages) "distinct error(s) found in" table)
-    (log/info "writing rows with errors to" output)
-    (with-open [writer (io/writer output)]
-      (csv/write-csv writer (->> fields (map name) (vector))
-                     :separator sep)
-      (loop [rows rows
-             messages []
-             row-idx 2
-             new-idx 2]
-        (let [row (first rows)]
-          (if row
-            (if (contains? message-rows row-idx)
-              (let [messages (->> (get message-rows row-idx)
-                                  (map (fn [msg]
-                                         (assoc msg
-                                                :table (str table-name "_distinct")
-                                                :cell (-> msg
-                                                          :cell
-                                                          (string/replace #"^([^\d]+)\d+" "$1")
-                                                          (str new-idx)))))
-                                  (concat messages))]
-                (csv/write-csv writer (vector row) :separator sep)
-                (recur (drop 1 rows) messages (+ 1 row-idx) (+ 1 new-idx)))
-              (recur (drop 1 rows) messages (+ 1 row-idx) new-idx))
-            ;; If there are no more rows to process, return the generated messages:
-            messages))))))
+  [fixed-paths]
+  (when-not (->> fixed-paths
+                 (map #(string/split % #"/"))
+                 (map last)
+                 (map #(string/replace % #"\..*$" ""))
+                 (apply distinct?))
+    (throw (Exception.
+            (str "Input paths: " (vec fixed-paths) " contain duplicate table names"))))
+  fixed-paths)
 
 (defn validate
   "TODO: Insert docstring here"

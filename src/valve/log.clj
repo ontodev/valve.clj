@@ -9,7 +9,7 @@
 (def log-levels {:debug DEBUG :info INFO :warn WARN :warning WARN :error ERROR :critical CRITICAL})
 
 ;; TODO: Make this configurable
-(def config-level (:info log-levels))
+(def config-level (:debug log-levels))
 
 (defn- screened-out?
   "Given a keword representing the log-level, check to see whether the application configuration
