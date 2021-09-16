@@ -782,14 +782,97 @@
   ([config args table column row-idx value]
    (validate-any config args table column row-idx value nil)))
 
-;; TODO: Implement this function
-(defn validate-concat
+(defn- validate-concat
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-concat")
+   (log/debug "In function validate-concat")
+   (let [datatypes (:datatypes config)
+         [validate-conditions
+          validate-values
+          messages
+          rem] (loop [remaining-args args
+                      validate-conditions []
+                      validate-values []
+                      messages []
+                      rem value
+                      break? false]
+                 (let [arg (first remaining-args)]
+                   (if (or break? (not arg))
+                     ;; If there are either no more args, or a break has been requested, exit the
+                     ;; loop with the results:
+                     [validate-conditions validate-values messages rem]
+                     ;; Otherwise continue:
+                     (if (-> arg :type (= "string"))
+                       ;; If the arg type is string:
+                       (let [arg-val (:value arg)]
+                         (if (contains? datatypes (keyword arg-val))
+                           (recur (drop 1 remaining-args)
+                                  (conj validate-conditions arg)
+                                  validate-values
+                                  messages
+                                  rem
+                                  false)
+                           (let [pre (-> (or rem "")
+                                         (string/split (re-pattern arg-val) 1)
+                                         (first))
+                                 rem (-> (or rem "")
+                                         (string/split (re-pattern arg-val) 1)
+                                         (second))]
+                             (cond
+                               (empty? rem)
+                               (let [message (if message
+                                               (-> message
+                                                   (string/replace #"\{table\}" table)
+                                                   (string/replace #"\{column\}" (name column))
+                                                   (string/replace #"\{row-idx\}" (str row-idx))
+                                                   (string/replace #"\{condition\}"
+                                                                   (parsed-to-str config
+                                                                                  {:type "function"
+                                                                                   :name "concat"
+                                                                                   :args args}))
+                                                   (string/replace #"\{value\}" value))
+                                               (str "'" value "' must contain substring '"
+                                                    arg-val "'"))]
+                                 (recur (drop 1 remaining-args)
+                                        validate-conditions
+                                        validate-values
+                                        (conj messages
+                                              (error config table column row-idx message))
+                                        rem
+                                        ;; This error causes us to break out of the loop:
+                                        true))
 
-   ;; Return empty list:
-   [])
+                               (not-empty pre)
+                               (recur (drop 1 remaining-args)
+                                      validate-conditions
+                                      (conj validate-values pre)
+                                      messages
+                                      rem
+                                      false)))))
+                       ;; Else if the arg type is other than string:
+                       (recur (drop 1 remaining-args)
+                              (conj validate-conditions arg)
+                              validate-values
+                              messages
+                              rem
+                              false)))))]
+
+     (if-not (empty? messages)
+       ;; If there are error messages present after going through the above loop, exit immediately:
+       messages
+       ;; Otherwise generate error messages based on the contents of validate-values and
+       ;; validate-conditions and return them:
+       (let [validate-values (if rem (conj validate-values rem) validate-values)]
+         (->> validate-values
+              (map-indexed (fn [idx val]
+                             (validate-condition config
+                                                 (nth validate-conditions idx)
+                                                 table
+                                                 column
+                                                 row-idx
+                                                 val
+                                                 message)))
+              (flatten))))))
 
   ([config args table column row-idx value]
    (validate-concat config args table column row-idx value nil)))
@@ -941,13 +1024,18 @@
    ;;[:parent "any(datatype.parent, foo, bar, lookup(blue, grue))"]
    ;;[:parent "any(blank)"]
    ;;[:datatype "datatype-label"]
-
-   ;; Good code:
    [:datatype "datatype-label"],
-   [:parent "any(blank, in(datatype.datatype))"]
+   [:parent "concat(blank, blank)"]
    [:match "any(blank, regex)"]
    [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
    [:replace "any(blank, regex-sub)"]])
+
+   ;; Good code:
+   ;;[:datatype "datatype-label"],
+   ;;[:parent "concat(blank, in(datatype.datatype))"]
+   ;;[:match "any(blank, regex)"]
+   ;;[:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
+   ;;[:replace "any(blank, regex-sub)"]])
 
 (def field-conditions
   [[:table "not(blank)"]
@@ -1315,6 +1403,8 @@
      (if-not (empty? kill-messages)
        (do
          (log/error "VALVE configuration completed with" (count kill-messages) "errors")
+         (doseq [msg kill-messages]
+           (println msg))
          kill-messages)
        (let [messages
              (->> table-details
