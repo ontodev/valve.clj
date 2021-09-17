@@ -785,7 +785,7 @@
 (defn- validate-concat
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   (log/debug "In function validate-concat")
+   ;;(log/debug "In function validate-concat")
    (let [datatypes (:datatypes config)
          [validate-conditions
           validate-values
@@ -877,14 +877,68 @@
   ([config args table column row-idx value]
    (validate-concat config args table column row-idx value nil)))
 
-;; TODO: Implement this function
 (defn validate-distinct
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-distinct")
+   (log/debug "In function validate-distinct")
+   (let [get-indexes (fn [seekwence item]
+                       ;; 'sequence' is a reserved word in clojure.
+                       (->> seekwence
+                            (map-indexed (fn [idx value]
+                                           (when (= value item)
+                                             idx)))
+                            (remove nil?)))
 
-   ;; Return empty list:
-   [])
+         table-details (:table-details config)
+         row-start (:row-start config)
+         base-rows (-> table-details (get (keyword table)) :rows)
+         base-headers (-> table-details (get (keyword table)) :fields)
+         base-values (->> base-rows (map #(get % (keyword column))))
+         value-indexes (get-indexes base-values value)
+         duplicate-locs (-> (if (-> value-indexes (count) (> 1))
+                              (let [col-idx (-> (.indexOf base-headers column) (+ 1))]
+                                (->> value-indexes
+                                     (filter #(= % row-idx))
+                                     (map #(-> % (+ row-start) (idx-to-a1 col-idx)))
+                                     (map #(str table ":" %))
+                                     (set)))
+                              #{})
+                            (into
+                             (when (> (count args) 1)
+                               (->> args
+                                    (drop 1)
+                                    (map (fn [item]
+                                           (let [t (:table item)
+                                                 c (:column item)
+                                                 trows (-> table-details (get (keyword t)) :rows)
+                                                 theaders (-> table-details (get (keyword t))
+                                                              :fields)
+                                                 tvalues (->> trows (map #(get % (keyword c))))]
+                                             (when (some #(= value %) tvalues)
+                                               (let [value-indexes (get-indexes tvalues value)
+                                                     col-idx (-> (.indexOf theaders c) (+ 1))]
+                                                 (->> value-indexes
+                                                      (map #(-> % (+ row-start) (idx-to-a1
+                                                                                 col-idx)))
+                                                      (map #(str t ":" %))))))))
+                                    (flatten)
+                                    (remove nil?)))))]
+     (if (empty? duplicate-locs)
+       []
+       (let [message (if-not (empty? message)
+                       (-> message
+                           (string/replace #"\{table\}" table)
+                           (string/replace #"\{column\}" (name column))
+                           (string/replace #"\{row-idx\}" (str row-idx))
+                           (string/replace #"\{condition\}"
+                                           (parsed-to-str config
+                                                          {:type "function"
+                                                           :name "distinct"
+                                                           :args args}))
+                           (string/replace #"\{value\}" value))
+                       (str "'" value "' must be distinct with value(s) at: "
+                            (string/join ", " duplicate-locs)))]
+         (-> (error config table column row-idx message) (vector))))))
 
   ([config args table column row-idx value]
    (validate-distinct config args table column row-idx value nil)))
@@ -1025,7 +1079,7 @@
    ;;[:parent "any(blank)"]
    ;;[:datatype "datatype-label"]
    [:datatype "datatype-label"],
-   [:parent "concat(blank, blank)"]
+   [:parent "distinct(blank, datatype.datatype)"]
    [:match "any(blank, regex)"]
    [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
    [:replace "any(blank, regex-sub)"]])
