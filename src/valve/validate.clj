@@ -943,14 +943,63 @@
   ([config args table column row-idx value]
    (validate-distinct config args table column row-idx value nil)))
 
-;; TODO: Implement this function
 (defn validate-in
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-in")
-
-   ;; Return empty list:
-   [])
+   (log/debug "In function validate-in with value:" value)
+   (let [table-details (:table-details config)
+         last-arg (last args)
+         match-case (or (-> last-arg :type (not= "named-arg"))
+                        (-> last-arg :value (string/lower-case) (not= "false")))
+         allowed (try
+                   (->> args
+                        (map (fn [arg]
+                               (if (= (:type arg) "string")
+                                 (if (or (-> arg :value (= value))
+                                         (-> arg :value (= (str "\"" value "\""))))
+                                   (throw (Exception. "OK"))
+                                   (str "\"" (:value arg) "\""))
+                                 (let [table-name (:table arg)
+                                       column-name (:column arg)
+                                       source-rows (-> table-details (get (keyword table-name))
+                                                       :rows)]
+                                   (if match-case
+                                     (let [allowed-values
+                                           (->> source-rows
+                                                (map #(get % (keyword column-name)))
+                                                (remove nil?))]
+                                       (when (some #(= % value) allowed-values)
+                                         (throw (Exception. "OK"))))
+                                     (let [allowed-values (->> source-rows
+                                                               (map #(get % (keyword column-name)))
+                                                               (remove nil?)
+                                                               (map string/lower-case))]
+                                       (when (some #(-> value (string/lower-case) (= %))
+                                                   allowed-values)
+                                         (throw (Exception. "OK")))))
+                                   (str table-name "." column-name)))))
+                        (vec))
+                   (catch Exception e
+                     (if (= "OK" (-> e (.getMessage)))
+                       ;; Return empty list:
+                       []
+                       ;; Otherwise re-throw:
+                       (throw e))))]
+     (if (empty? allowed)
+       []
+       (let [message (if-not (empty? message)
+                       (-> message
+                           (string/replace #"\{table\}" table)
+                           (string/replace #"\{column\}" (name column))
+                           (string/replace #"\{row-idx\}" (str row-idx))
+                           (string/replace #"\{condition\}"
+                                           (parsed-to-str config
+                                                          {:type "function"
+                                                           :name "in"
+                                                           :args args}))
+                           (string/replace #"\{value\}" value))
+                       (str "'" value "' must be in: " (string/join ", " allowed)))]
+         (-> (error config table column row-idx message) (vector))))))
 
   ([config args table column row-idx value]
    (validate-in config args table column row-idx value nil)))
@@ -1076,20 +1125,20 @@
 (def datatype-conditions
   [;; Used only for dev:
    ;;[:parent "any(datatype.parent, foo, bar, lookup(blue, grue))"]
-   ;;[:parent "any(blank)"]
+   ;;[:parent "in(datatype.datatype, datatype.datatype)"]
    ;;[:datatype "datatype-label"]
-   [:datatype "datatype-label"],
-   [:parent "distinct(blank, datatype.datatype)"]
-   [:match "any(blank, regex)"]
-   [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
-   [:replace "any(blank, regex-sub)"]])
-
-   ;; Good code:
    ;;[:datatype "datatype-label"],
-   ;;[:parent "concat(blank, in(datatype.datatype))"]
+   ;;[:parent "distinct(blank, datatype.datatype)"]
    ;;[:match "any(blank, regex)"]
    ;;[:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
    ;;[:replace "any(blank, regex-sub)"]])
+
+   ;; Good code:
+   [:datatype "datatype-label"],
+   [:parent "concat(blank, in(datatype.datatype))"]
+   [:match "any(blank, regex)"]
+   [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
+   [:replace "any(blank, regex-sub)"]])
 
 (def field-conditions
   [[:table "not(blank)"]
