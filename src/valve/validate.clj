@@ -1011,15 +1011,21 @@
   ([config args table column row-idx value]
    (validate-in config args table column row-idx value nil)))
 
-;; TODO: Implement this function
 (defn validate-list
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-list")
-
-   ;; Return empty list:
-   [])
-
+   (log/debug "In function validate-list")
+   (let [split-char (-> args (first) :value)
+         expr (second args)
+         split-char "_" ;; HACK
+         splits (->> split-char (re-pattern) (string/split value))
+         errs (->> splits
+                   (map #(validate-condition config expr table column row-idx % message))
+                   (flatten))]
+     (if-not (empty? errs)
+       (->> errs
+            (map #(:message %)))
+       [])))
   ([config args table column row-idx value]
    (validate-list config args table column row-idx value nil)))
 
@@ -1111,7 +1117,8 @@
         "check" ["(string or field)+" "named:match_case?"]
         "validate" validate-in}
    :list {"usage" "list(str, expression)"
-          "check" ["string" "expression"]
+          ;;"check" ["string" "expression"]
+          "check" ["expression"  "expression"]
           "validate" validate-list}
    :lookup {"usage" "lookup(table, column, column)"
             "check" check-lookup
@@ -1132,21 +1139,21 @@
 (def datatype-conditions
   [;; Used only for dev:
    ;;[:parent "any(datatype.parent, foo, bar, lookup(blue, grue))"]
-   ;;[:parent "in(datatype.datatype, datatype.datatype)"]
+   [:parent "list(datatype-label, datatype-label)"]
    ;;[:datatype "datatype-label"]
    ;;[:datatype "datatype-label"],
    ;;[:parent "distinct(blank, datatype.datatype)"]
    ;;[:match "any(blank, regex)"]
    ;;[:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
    ;;[:replace "any(blank, regex-sub)"]
-   ;;])
+   ])
 
    ;; Good code:
-   [:datatype "datatype-label"],
-   [:parent "concat(blank, in(datatype.datatype))"]
-   [:match "any(blank, regex)"]
-   [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
-   [:replace "any(blank, regex-sub)"]])
+   ;;[:datatype "datatype-label"],
+   ;;[:parent "concat(blank, in(datatype.datatype))"]
+   ;;[:match "any(blank, regex)"]
+   ;;[:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
+   ;;[:replace "any(blank, regex-sub)"]])
 
 (def field-conditions
   [[:table "not(blank)"]
