@@ -1029,14 +1029,61 @@
   ([config args table column row-idx value]
    (validate-list config args table column row-idx value nil)))
 
-;; TODO: Implement this function
 (defn validate-lookup
   "TODO: Insert docstring here"
+  ;; TODO: This function was coded very quickly. Double-check it.
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-lookup")
+   (log/debug "In function validate-lookup")
+   (let [table-details (:table-details config)
+         table-rules (-> config :table-rules (get (keyword table)))
+         lookup-value (->> table-rules
+                           (seq)
+                           (map (fn [[whencol rules]]
+                                  (loop [remaining-rules rules]
+                                    (let [rule (first remaining-rules)]
+                                      (if (and rule
+                                               (or (->> rule :column (not= column))
+                                                   (->> rule :then-condition :name (not= "lookup"))))
+                                        (recur (drop 1 remaining-rules))
+                                        (-> table-details (get (keyword table)) :rows
+                                            (nth row-idx) (get (keyword whencol))))))))
+                           (last))]
+     (when (empty? lookup-value)
+       (throw
+        (Exception.
+         (str "Unable to find lookup function for" table "." column "in rule table"))))
 
-   ;; Return empty list:
-   [])
+     (let [search-table (-> args (first) :value)
+           search-column (-> args (second) :value)
+           return-column (-> args (nth 2) :value)
+           row-errors (loop [remaining-rows (-> table-details (get (keyword search-table)) :rows)]
+                        (let [row (first remaining-rows)]
+                          (when row
+                            (let [maybe-value (get row (keyword search-column))]
+                              (if (= maybe-value lookup-value)
+                                (let [expected (get row (keyword return-column))]
+                                  (if (not= value expected)
+                                    (-> (error config table column row-idx
+                                               (str "'" value "' must be '" expected "'")
+                                               "ERROR" expected)
+                                        (vector))
+                                    []))
+                                (recur (drop 1 remaining-rows)))))))]
+       (if row-errors
+         row-errors
+         (let [message (if-not (empty? message)
+                         (-> message
+                             (string/replace #"\{table\}" table)
+                             (string/replace #"\{column\}" (name column))
+                             (string/replace #"\{row-idx\}" (str row-idx))
+                             (string/replace #"\{condition\}"
+                                             (parsed-to-str config
+                                                            {:type "function"
+                                                             :name "lookup"
+                                                             :args args}))
+                             (string/replace #"\{value\}" value))
+                         (str "'" value "' must be present in: " search-table "." return-column))]
+           (-> (error config table column row-idx message) (vector)))))))
 
   ([config args table column row-idx value]
    (validate-lookup config args table column row-idx value nil)))
