@@ -1031,7 +1031,6 @@
 
 (defn validate-lookup
   "TODO: Insert docstring here"
-  ;; TODO: This function was coded very quickly. Double-check it.
   ([config args table column row-idx value message]
    (log/debug "In function validate-lookup")
    (let [table-details (:table-details config)
@@ -1088,17 +1087,61 @@
   ([config args table column row-idx value]
    (validate-lookup config args table column row-idx value nil)))
 
-;; TODO: Implement this function
 (defn validate-sub
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-sub")
+   (log/debug "In function validate-sub")
+   (let [regex (first args)
+         subfunc (second args)
+         flags (:flags regex)
+         [flags count ignore-case] (if (and flags
+                                            (-> flags (.indexOf "g") (not= -1)))
+                                     [(string/replace flags #"g" "") 0 false]
+                                     [flags 1 false])
+         [flags count ignore-case] (if (and flags
+                                            (-> flags (.indexOf "i") (not= -1)))
+                                     [(string/replace flags #"i" "") count true]
+                                     [flags count ignore-case])
+         pattern (->> regex :pattern (str "?(" flags ")"))
+         value (if ignore-case ;; TODO: Implement this part.
+                 value
+                 value)]
 
-   ;; Return empty list:
-   [])
+     (validate-condition config subfunc table column row-idx value message)))
 
   ([config args table column row-idx value]
    (validate-sub config args table column row-idx value nil)))
+
+(defn validate-not
+  "TODO: Insert docstring here"
+  ([config args table column row-idx value message]
+   (log/debug "In function validate-not")
+   (loop [remaining-args args]
+     (let [arg (first remaining-args)]
+       (if-not arg
+         []
+         (let [messages (validate-condition config arg table column row-idx value)]
+           (if-not (empty? messages)
+             (recur (drop 1 remaining-args))
+             (let [message (if-not (empty? message)
+                             (-> message
+                                 (string/replace #"\{table\}" table)
+                                 (string/replace #"\{column\}" (name column))
+                                 (string/replace #"\{row-idx\}" (str row-idx))
+                                 (string/replace #"\{condition\}"
+                                                 (parsed-to-str config
+                                                                {:type "function"
+                                                                 :name "not"
+                                                                 :args args}))
+                                 (string/replace #"\{value\}" value))
+                             (-> (parsed-to-str config arg)
+                                 (#(if (= % "blank")
+                                     "value must not be blank"
+                                     (str "'" value "' must not be '" % "'")))))]
+               (error config table column row-idx message))))))))
+
+  ([config args table column row-idx value]
+   (validate-not config args table column row-idx value nil)))
 
 ;; TODO: Implement this function
 (defn validate-under
@@ -1111,18 +1154,6 @@
 
   ([config args table column row-idx value]
    (validate-under config args table column row-idx value nil)))
-
-;; TODO: Implement this function
-(defn validate-not
-  "TODO: Insert docstring here"
-  ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-not")
-
-   ;; Return empty list:
-   [])
-
-  ([config args table column row-idx value]
-   (validate-not config args table column row-idx value nil)))
 
 ;; Builtin check functions:
 ;; TODO: Implement this function
