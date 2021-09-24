@@ -887,7 +887,7 @@
 (defn validate-distinct
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   (log/debug "In function validate-distinct")
+   ;;(log/debug "In function validate-distinct")
    (let [get-indexes (fn [seekwence item]
                        ;; 'sequence' is a reserved word in clojure.
                        (->> seekwence
@@ -953,7 +953,7 @@
 (defn validate-in
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   (log/debug "In function validate-in with value:" value)
+   ;;(log/debug "In function validate-in with value:" value)
    (let [table-details (:table-details config)
          last-arg (last args)
          match-case (or (-> last-arg :type (not= "named-arg"))
@@ -1014,7 +1014,7 @@
 (defn validate-list
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   (log/debug "In function validate-list")
+   ;;(log/debug "In function validate-list")
    (let [split-char (-> args (first) :value)
          expr (second args)
          split-char "_" ;; HACK
@@ -1032,7 +1032,7 @@
 (defn validate-lookup
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   (log/debug "In function validate-lookup")
+   ;;(log/debug "In function validate-lookup")
    (let [table-details (:table-details config)
          table-rules (-> config :table-rules (get (keyword table)))
          lookup-value (->> table-rules
@@ -1090,7 +1090,7 @@
 (defn validate-sub
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   (log/debug "In function validate-sub")
+   ;;(log/debug "In function validate-sub")
    (let [regex (first args)
          subfunc (second args)
          flags (:flags regex)
@@ -1115,7 +1115,7 @@
 (defn validate-not
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   (log/debug "In function validate-not")
+   ;;(log/debug "In function validate-not")
    (loop [remaining-args args]
      (let [arg (first remaining-args)]
        (if-not arg
@@ -1123,6 +1123,8 @@
          (let [messages (validate-condition config arg table column row-idx value)]
            (if-not (empty? messages)
              (recur (drop 1 remaining-args))
+             ;; TODO: Add an 'update-message' function like the one in valve.py and call it
+             ;; here, and also in many other similar places, to save lines of code.
              (let [message (if-not (empty? message)
                              (-> message
                                  (string/replace #"\{table\}" table)
@@ -1143,14 +1145,73 @@
   ([config args table column row-idx value]
    (validate-not config args table column row-idx value nil)))
 
-;; TODO: Implement this function
+(defn has-ancestor
+  "TODO: Insert docstring here"
+  ([tree ancestor node direct?]
+   (let [parents (get tree (keyword node))]
+     (cond
+       (and (= node ancestor)
+            (not direct?))
+       true
+
+       (not (-> tree (contains? (keyword node))))
+       false
+
+       (some #(= ancestor %) parents)
+       true
+
+       direct?
+       false
+
+       :else
+       (loop [remaining-parents parents]
+         (let [parent (first remaining-parents)]
+           (if-not parent
+             false
+             (if (has-ancestor tree ancestor parent)
+               true
+               (recur (drop 1 remaining-parents)))))))))
+
+  ([tree ancestor node]
+   (has-ancestor tree ancestor node false)))
+
 (defn validate-under
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-under")
+   (log/debug "In function validate-under with args:" args)
+   (let [trees (:trees config)
+         table-name (-> args (first) :table)
+         column-name (-> args (first) :column)
+         tree-name (str table-name "." column-name)]
 
-   ;; Return empty list:
-   [])
+     (when-not (-> trees (contains? (keyword tree-name)))
+       ;; This has already been validated for CLI users
+       (throw (Exception. (str "A tree for " tree-name " is not defined"))))
+
+     (let [tree (get trees (keyword tree-name))
+           ancestor (-> args (second) :value)
+           direct? (boolean
+                    (when (> (count args) 2)
+                      (-> args (nth 2) :value (string/lower-case) (= "true"))))]
+       (if (has-ancestor tree ancestor value direct?)
+         []
+         (let [message (if-not (empty? message)
+                         (-> message
+                             (string/replace #"\{table\}" table)
+                             (string/replace #"\{column\}" (name column))
+                             (string/replace #"\{row-idx\}" (str row-idx))
+                             (string/replace #"\{condition\}"
+                                             (parsed-to-str config
+                                                            {:type "function"
+                                                             :name "under"
+                                                             :args args}))
+                             (string/replace #"\{value\}" value))
+                         (str "'" value "' must be "
+                              (if-not direct?
+                                "equal to or under"
+                                "a direct subclass of")
+                              " '" ancestor "' from " tree-name))]
+           (error config table column row-idx message))))))
 
   ([config args table column row-idx value]
    (validate-under config args table column row-idx value nil)))
@@ -1217,7 +1278,7 @@
 (def datatype-conditions
   [;; Used only for dev:
    ;;[:parent "any(datatype.parent, foo, bar, lookup(blue, grue))"]
-   [:parent "list(datatype-label, datatype-label)"]
+   [:parent "under(datatype.parent, \"datatype-label\", direct=\"true\")"]
    ;;[:datatype "datatype-label"]
    ;;[:datatype "datatype-label"],
    ;;[:parent "distinct(blank, datatype.datatype)"]
