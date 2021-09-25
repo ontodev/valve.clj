@@ -1217,12 +1217,59 @@
    (validate-under config args table column row-idx value nil)))
 
 ;; Builtin check functions:
-;; TODO: Implement this function
 (defn check-lookup
   "TODO: Insert docstring here"
   [config table column args]
-  ;;(println "In check-lookup function"))
-  )
+  (log/debug "In check-lookup function")
+  (loop [break? false
+         errors []
+         i 0
+         table nil]
+    (if (and (not break?)
+             (< i 3)
+             (< i (count args)))
+      ;; Main loop processing:
+      (let [a (nth args i)
+            i (+ i 1)]
+        (cond
+          (-> a :type (not= "string"))
+          (recur false
+                 (conj errors
+                       (str "argument " i " must be of type 'string'"))
+                 i
+                 table)
+
+          (and (= i 1)
+               (-> config :table-details (contains?
+                                          (-> a :value (keyword)))
+                   (not)))
+          (recur true
+                 (conj errors "argument 1 must be a table in inputs")
+                 i
+                 table)
+
+          (= i 1)
+          (let [table (:value a)]
+            (recur false
+                   (if (and table
+                            (> i 1)
+                            (->> config :table-details (#(get % (keyword table))) :fields
+                                 (some #(= % (keyword table)))
+                                 (not)))
+                     (conj errors
+                           (str "argument " i " must be a column in '" table "'"))
+                     errors)
+                   i
+                   table))))
+      (if break?
+        ;; Return early:
+        (->> errors (string/join "; ") (str "lookup "))
+        ;; We have now completed the loop:
+        (when-not (= (count args) 3)
+          (conj errors
+                (str "expects 3 arguments, but " (count args) " were passed")))
+        (when-not (empty? errors)
+          (->> errors (string/join "; ") (str "lookup ")))))))
 
 (def default-datatypes
   {:blank {:datatype "blank"
@@ -1278,21 +1325,21 @@
 (def datatype-conditions
   [;; Used only for dev:
    ;;[:parent "any(datatype.parent, foo, bar, lookup(blue, grue))"]
-   [:parent "under(datatype.parent, \"datatype-label\", direct=\"true\")"]
+   ;;[:parent "under(datatype.parent, \"datatype-label\", direct=\"true\")"]
    ;;[:datatype "datatype-label"]
    ;;[:datatype "datatype-label"],
    ;;[:parent "distinct(blank, datatype.datatype)"]
    ;;[:match "any(blank, regex)"]
    ;;[:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
    ;;[:replace "any(blank, regex-sub)"]
-   ])
+   ;;])
 
    ;; Good code:
-   ;;[:datatype "datatype-label"],
-   ;;[:parent "concat(blank, in(datatype.datatype))"]
-   ;;[:match "any(blank, regex)"]
-   ;;[:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
-   ;;[:replace "any(blank, regex-sub)"]])
+   [:datatype "datatype-label"],
+   [:parent "concat(blank, in(datatype.datatype))"]
+   [:match "any(blank, regex)"]
+   [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
+   [:replace "any(blank, regex-sub)"]])
 
 (def field-conditions
   [[:table "not(blank)"]
