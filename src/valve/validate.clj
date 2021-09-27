@@ -445,6 +445,16 @@
   (let [[parsed err] (parse-condition config table column condition)]
     (when err (throw (Exception. err)))
     parsed))
+    ;;{:type "function"
+    ;; :name "under"
+    ;; :args [{:column "parent"
+    ;;         :table "datatype"
+    ;;         :type "field"}
+    ;;        {:type "string"
+    ;;         :value "plugh"}
+    ;;        {:key "direct"
+    ;;         :type "named_arg"
+    ;;         :value "false"}]}))
 
 (defn- check-config-contents
   "TODO: Add docstring here"
@@ -1265,11 +1275,12 @@
         ;; Return early:
         (->> errors (string/join "; ") (str "lookup "))
         ;; We have now completed the loop:
-        (when-not (= (count args) 3)
-          (conj errors
-                (str "expects 3 arguments, but " (count args) " were passed")))
-        (when-not (empty? errors)
-          (->> errors (string/join "; ") (str "lookup ")))))))
+        (do
+          (when-not (= (count args) 3)
+            (conj errors
+                  (str "expects 3 arguments, but " (count args) " were passed")))
+          (when-not (empty? errors)
+            (->> errors (string/join "; ") (str "lookup "))))))))
 
 (def default-datatypes
   {:blank {:datatype "blank"
