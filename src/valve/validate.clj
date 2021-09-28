@@ -445,16 +445,6 @@
   (let [[parsed err] (parse-condition config table column condition)]
     (when err (throw (Exception. err)))
     parsed))
-    ;;{:type "function"
-    ;; :name "under"
-    ;; :args [{:column "parent"
-    ;;         :table "datatype"
-    ;;         :type "field"}
-    ;;        {:type "string"
-    ;;         :value "plugh"}
-    ;;        {:key "direct"
-    ;;         :type "named_arg"
-    ;;         :value "false"}]}))
 
 (defn- check-config-contents
   "TODO: Add docstring here"
@@ -475,6 +465,7 @@
                                                     (-> row (get (keyword column))))))
                              (flatten)))
                       (flatten))]
+
     ;; Return any generated error messages:
     messages))
 
@@ -1314,8 +1305,7 @@
         "check" ["(string or field)+" "named:match_case?"]
         "validate" validate-in}
    :list {"usage" "list(str, expression)"
-          ;;"check" ["string" "expression"]
-          "check" ["expression"  "expression"]
+          "check" ["string" "expression"]
           "validate" validate-list}
    :lookup {"usage" "lookup(table, column, column)"
             "check" check-lookup
@@ -1334,20 +1324,8 @@
            "validate" validate-under}})
 
 (def datatype-conditions
-  [;; Used only for dev:
-   ;;[:parent "any(datatype.parent, foo, bar, lookup(blue, grue))"]
-   ;;[:parent "under(datatype.parent, \"datatype-label\", direct=\"true\")"]
-   ;;[:datatype "datatype-label"]
-   ;;[:datatype "datatype-label"],
-   ;;[:parent "distinct(blank, datatype.datatype)"]
-   ;;[:match "any(blank, regex)"]
-   ;;[:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
-   ;;[:replace "any(blank, regex-sub)"]
-   ;;])
-
-   ;; Good code:
-   [:datatype "datatype-label"],
-   [:parent "concat(blank, in(datatype.datatype))"]
+  [[:datatype "datatype-label"],
+   [:parent "any(blank, in(datatype.datatype))"]
    [:match "any(blank, regex)"]
    [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]
    [:replace "any(blank, regex-sub)"]])
@@ -1454,6 +1432,7 @@
                      (concat (check-rows config :valve.spec/datatype "datatype" rows row-start))
                      (concat (check-config-contents config "datatype"
                                                     datatype-conditions rows)))]
+
     ;; Loop through the datatype records and add the corresponding datatype information to our
     ;; configuration:
     (loop [config config
