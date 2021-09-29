@@ -225,6 +225,37 @@
                          add-msg
                          false))))
 
+            ;; Zero or one:
+            (string/ends-with? e "?")
+            (letfn [(check-zero-or-one [idx e]
+                      (let [err (check-arg config table (nth args idx) e)
+                            allowed-args (+ allowed-args 1)]
+                        (if err
+                          (if (first check)
+                            [(+ i 1) allowed-args errors (first check) (drop 1 check)
+                             (str " or " err) false]
+                            [i allowed-args (conj errors
+                                                  (str "optional argument " (+ idx 1) " "
+                                                       err add-msg))
+                             e check add-msg true]))))]
+              (if (<= (count args) i)
+                (recur i
+                       allowed-args
+                       errors
+                       e
+                       check
+                       add-msg
+                       true)
+                (let [e (-> (count e) (- 1) (#(subs e 0 %)))
+                      [i allowed-args errors e check add-msg break?] (check-zero-or-one i e)]
+                  (recur i
+                         allowed-args
+                         errors
+                         e
+                         check
+                         add-msg
+                         break?))))
+
             ;; One or more:
             (string/ends-with? e "+")
             (letfn [(check-one-or-more [idx e]
@@ -235,11 +266,12 @@
                         (let [args (-> (- (count args) idx) (take-last args))
                               a (first args)]
                           (if-not a
-                            [idx add-msg errors break?]
+                            [(+ idx 1) allowed-args errors (first check) (drop 1 check) add-msg
+                             break?]
                             (let [err (check-arg config table a e)]
                               (if err
                                 (if (first check)
-                                  [idx (str " or " err) errors true]
+                                  [idx allowed-args errors e check (str " or " err) true]
                                   (recur (+ idx 1)
                                          add-msg
                                          (conj errors (str "argument "
@@ -259,43 +291,14 @@
                          check
                          add-msg
                          true)
-                  (let [[i add-msg errors break?] (check-one-or-more i e)]
-                    (recur (+ i 1)
+                  (let [[i allowed-args errors e check add-msg break?] (check-one-or-more i e)]
+                    (recur i
                            allowed-args
                            errors
-                           (first check)
-                           (drop 1 check)
+                           e
+                           check
                            add-msg
                            break?)))))
-
-            ;; Zero or one:
-            (string/ends-with? e "?")
-            (letfn [(check-zero-or-one [idx e]
-                      (let [err (check-arg config table (first args) e)
-                            allowed-args (+ allowed-args 1)]
-                        (if err
-                          (if (first check)
-                            [allowed-args (str " or " err) errors]
-                            [allowed-args add-msg
-                             (conj errors
-                                   (str "argument " (+ idx 1) " " err add-msg))]))))]
-              (if-not (>= (count args) i)
-                (recur (+ i 1)
-                       allowed-args
-                       errors
-                       (first check)
-                       (drop 1 check)
-                       add-msg
-                       true)
-                (let [e (-> (count e) (- 1) (#(subs e 0 %)))
-                      [allowed-args add-msg errors] (check-zero-or-one i e)]
-                  (recur (+ i 1)
-                         allowed-args
-                         errors
-                         (first check)
-                         (drop 1 check)
-                         add-msg
-                         false))))
 
             ;; exactly one
             :else
@@ -308,7 +311,7 @@
                      check
                      add-msg
                      true)
-              (let [err (check-arg config table (first args) e)
+              (let [err (check-arg config table (nth args i) e)
                     errors (if-not err
                              errors
                              (conj errors (str "argument " (+ i 1) " " err)))]
@@ -785,7 +788,7 @@
                                                                             :args args}))
                            (string/replace #"\{value\}" value))
                        (str "'" value "' must meet one of: " (string/join ", " conditions)))]
-         (error config table column row-idx message)))))
+         (vector (error config table column row-idx message))))))
 
   ([config args table column row-idx value]
    (validate-any config args table column row-idx value nil)))
@@ -1018,14 +1021,16 @@
    ;;(log/debug "In function validate-list")
    (let [split-char (-> args (first) :value)
          expr (second args)
-         split-char "_" ;; HACK
          splits (->> split-char (re-pattern) (string/split value))
          errs (->> splits
                    (map #(validate-condition config expr table column row-idx % message))
                    (flatten))]
      (if-not (empty? errs)
        (->> errs
-            (map #(:message %)))
+            (map #(:message %))
+            (string/join "; ")
+            (error config table column row-idx)
+            (vector))
        [])))
   ([config args table column row-idx value]
    (validate-list config args table column row-idx value nil)))
@@ -1141,7 +1146,7 @@
                                  (#(if (= % "blank")
                                      "value must not be blank"
                                      (str "'" value "' must not be '" % "'")))))]
-               (error config table column row-idx message))))))))
+               (vector (error config table column row-idx message)))))))))
 
   ([config args table column row-idx value]
    (validate-not config args table column row-idx value nil)))
@@ -1212,7 +1217,7 @@
                                 "equal to or under"
                                 "a direct subclass of")
                               " '" ancestor "' from " tree-name))]
-           (error config table column row-idx message))))))
+           (vector (error config table column row-idx message)))))))
 
   ([config args table column row-idx value]
    (validate-under config args table column row-idx value nil)))
