@@ -1,5 +1,6 @@
 (ns valve.cli-handler
-  (:require [clojure.java.io :as io]
+  (:require [clojure.data.csv :as csv]
+            [clojure.java.io :as io]
             [clojure.string :as string]
             [clojure.tools.cli :refer [parse-opts]]
             [valve.log :as log]
@@ -107,9 +108,21 @@
           (try
             (let [messages (validate arguments (:distinct options) (:row-start options))]
               (if-not (empty? messages)
-                (do
-                  ;; TODO: implement `write-messages`
+                (let [colkeys (->> messages (first) (keys))
+                      get-values-from-rec (fn [db-rec]
+                                            (for [colkey colkeys]
+                                              (colkey db-rec)))
+                      output (:output options)
+                      sep (if (string/ends-with? output ".csv")
+                            \,
+                            \tab)]
+                  (with-open [writer (io/writer output)]
+                    (csv/write-csv writer [(map name colkeys)])
+                    (doseq [rec messages]
+                      (csv/write-csv writer [(get-values-from-rec rec)] :separator sep)))
+                  ;; Return error status:
                   (:error return-status))
+                ;; Return success status
                 (:success return-status)))
             (catch Exception e
               (binding [*out* *err*]

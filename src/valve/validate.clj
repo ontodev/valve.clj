@@ -1726,9 +1726,7 @@
                   (apply concat))]
 
          (when-not (empty? messages)
-           (log/error "VALVE completed with" (count messages) "problems found!")
-           (doseq [msg messages]
-             (println msg)))
+           (log/error "VALVE completed with" (count messages) "problems found!"))
 
          messages))))
 
