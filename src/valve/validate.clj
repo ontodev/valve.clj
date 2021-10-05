@@ -15,22 +15,22 @@
 
 (defn- idx-to-a1
   "TODO: Insert docstring here"
-  [row-num col-num]
-  (loop [divisor col-num
+  [row col]
+  (loop [div col
          column-label ""]
-    (let [[divisor modulus] [(quot divisor 26) (mod divisor 26)]
-          [divisor modulus] (if (= 0 modulus)
-                              [(- divisor 1) 26]
-                              [divisor modulus])
-          column-label (-> modulus
+    (let [[div mod] [(quot div 26) (mod div 26)]
+          [div mod] (if (= 0 mod)
+                      [(- div 1) 26]
+                      [div mod])
+          column-label (-> mod
                            (+ 64)
                            (char)
                            (str column-label))]
-      (if (= 0 divisor)
-        (str column-label row-num)
-        (recur divisor column-label)))))
+      (if (= 0 div)
+        (str column-label row)
+        (recur div column-label)))))
 
-(defn error
+(defn- error
   "TODO: Add docstring here"
   ([config table column row-idx message level suggestion]
    (let [row-start (:row-start config)
@@ -38,7 +38,7 @@
                      :table-details
                      (get (keyword table))
                      :fields
-                     (.indexOf column))
+                     (.indexOf (keyword column)))
          row-num (if (some #(= table %) ["datatype" "field" "rule"])
                    row-idx
                    (+ row-idx row-start))
@@ -66,10 +66,19 @@
           (str "\"" (:value condition) "\""))
 
       (= cond-type "field")
-      (str (:table condition) "." (:column condition))
+      (let [table (if (-> condition :table (.contains " "))
+                    (str "\"" (:table condition) "\"")
+                    (:table condition))
+            column (if (-> condition :column (.contains " "))
+                     (str "\"" (:column condition) "\"")
+                     (:column condition))]
+        (str table "." column))
 
       (= cond-type "named-arg")
-      (str (:key condition) "=" (:value condition))
+      (let [val (if (-> condition :value (.contains " "))
+                  (str "\"" (:value condition) "\"")
+                  (:value condition))]
+        (str (:key condition) "=" val))
 
       (= cond-type "regex")
       (let [pattern (:pattern condition)
@@ -88,6 +97,16 @@
       :else
       (throw (Exception. (str "Unknown condition type: " cond-type))))))
 
+(defn- update-message
+  "TODO: Add docstring here"
+  [config table column row-idx condition value message]
+  (-> message
+      (string/replace #"\{table\}" table)
+      (string/replace #"\{column\}" (name column))
+      (string/replace #"\{row-idx\}" (str row-idx))
+      (string/replace #"\{condition\}" (parsed-to-str config condition))
+      (string/replace #"\{value\}" value)))
+
 (defn- check-arg
   "TODO: Add docstring here"
   [config table arg expected]
@@ -98,25 +117,26 @@
           ;; Extract the list of disjuncts:
           disjuncts (string/split expected #" or ")]
       (loop [remaining-disjuncts disjuncts
-             errors []]
+             errors []
+             valid? false]
         (if (empty? remaining-disjuncts)
           ;; If we have gone through all the disjuncts, then if there are any errors, construct
-          ;; the corresponding error string and return it:
-          (when-not (empty? errors)
+          ;; the corresponding error string and return it; otherwise nil is returned.
+          (when-not valid?
             (string/join " or " errors))
-          ;; Otherwise check the next disjunct:
+          ;; If we have not gone through all of the disjuncts, check the next one:
           (let [err (->> (first remaining-disjuncts)
                          (check-arg config table arg))]
             (if-not (nil? err)
               ;; If we got an error for this disjunct, add it to the list of errors and go on to
               ;; the next disjunct:
               (recur (drop 1 remaining-disjuncts)
-                     (if (nil? err)
-                       errors
-                       (conj errors err)))
-              ;; If this disjunct is valid, then the whole expression is. Empty the list of
-              ;; remaining disjuncts to check, as well as any previous errors encountered:
-              (recur nil nil))))))
+                     (conj errors err)
+                     valid?)
+              ;; Otherwise, set valid? to true and go on to the next disjunct:
+              (recur (drop 1 remaining-disjuncts)
+                     errors
+                     true))))))
 
     (string/starts-with? expected "named:")
     (let [narg (subs expected 6)]
@@ -377,32 +397,41 @@
           dname (:value condition)
           ancestors (into [dname] (find-ancestors datatypes dname))]
       (loop [ancestors ancestors]
-        (if-not (first ancestors)
-          []
-          (let [datatype (get datatypes (keyword dname))
-                value (or value "")
-                message (if-not (:message datatype)
-                          (str "'" value "' must be of datatype '" dname "'")
-                          (-> (:message datatype)
-                              (string/replace #"\{table\}" table)
-                              (string/replace #"\{column\}" (name column))
-                              (string/replace #"\{row-idx\}" (str row-idx))
-                              (string/replace #"\{condition\}" (parsed-to-str config condition))
-                              (string/replace #"\{value\}" value)))
-                level (get datatype :level "ERROR")
-                match (:match datatype)]
-            (if (and match
-                     (->> value (re-matches match) (not)))
-              (let [replace (:replace datatype)
-                    pattern #"s/(.+[^\\]|.*(?<!/)/.*[^\\])/(.+[^\\]|.*(?<!/)/.*[^\\])/(.*)"
-                    suggestion (when-not (empty? replace)
-                                 (->> replace
-                                      (re-matches pattern)
-                                      ((fn [[_ pattern replacement]]
-                                         (string/replace value pattern replacement)))))]
-                (-> (error config table column row-idx message level suggestion)
-                    (vector)))
-              (recur (drop 1 ancestors)))))))))
+        (let [dname (first ancestors)]
+          (if-not dname
+            []
+            (let [datatype (get datatypes (keyword dname))
+                  value (or value "")
+                  message (if-not (:message datatype)
+                            (str "'" value "' must be of datatype '" dname "'")
+                            (update-message config table column row-idx condition value
+                                            (:message datatype)))
+                  level (get datatype :level "ERROR")
+                  match (-> datatype
+                            :match
+                            (#(when (= (type %) java.util.regex.Pattern)
+                                (re-pattern %))))
+                  ;; There is nothing in clojure corresponding to Python's re.match(), which matches
+                  ;; a pattern against the *start* of a string, so we explicitly make sure to add
+                  ;; a caret to force matching from the start. Note that "^" is idempotent so it
+                  ;; will do no harm if the string already happens to begin with a caret.
+                  match (->> match (str) (str "^") (re-pattern))]
+              (when match
+                (if (->> value (re-find match) (not))
+                  (let [replace (:replace datatype)
+                        suggestion (when-not (empty? replace)
+                                     (-> replace
+                                         ;; TODO: Using string/split in this naive way is not good
+                                         ;; because we migth have a string like, e.g.,
+                                         ;; s/akjhakjds\\/asdasd/ffasd/g
+                                         ;; i.e., note the escaped forward slash.
+                                         ;; But it is ok for now.
+                                         (string/split #"/")
+                                         ((fn [[_ pattern replacement]]
+                                            (string/replace value pattern replacement)))))]
+                    (-> (error config table column row-idx message level suggestion)
+                        (vector)))
+                  (recur (drop 1 ancestors)))))))))))
 
 (defn- validate-condition
   "TODO: Add docstring here"
@@ -486,25 +515,30 @@
       [nil "the first argument of the `tree` function must be a column name"]
 
       :else
-      (loop [add-tree-name nil
-             split-char nil
-             x 1]
-        (if-not (< x (count args))
-          [{:child-column (-> args (first) :value)
-            :add-tree-name add-tree-name
-            :split-char split-char}
-           nil]
-          (let [arg (nth args x)]
-            (cond
-              (and (contains? arg :key) (-> arg :key (= "split")))
-              (recur add-tree-name (:value arg) (+ x 1))
+      (if (empty? args)
+        [{:child-column (-> args (first) :value)
+          :add-tree-name nil
+          :split-char nil}
+         nil]
+        (loop [add-tree-name nil
+               split-char nil
+               x 1]
+          (if-not (< x (count args))
+            [{:child-column (-> args (first) :value)
+              :add-tree-name add-tree-name
+              :split-char split-char}
+             nil]
+            (let [arg (nth args x)]
+              (cond
+                (and (contains? arg :key) (-> arg :key (= "split")))
+                (recur add-tree-name (:value arg) (+ x 1))
 
-              (contains? arg :table)
-              (recur (str (:table arg) "." (:column arg)) split-char (+ x 1))
+                (contains? arg :table)
+                (recur (str (:table arg) "." (:column arg)) split-char (+ x 1))
 
-              :else
-              [nil (str "`tree` argument " (+ x 1)
-                        " must be a table.column pair or split=CHAR")])))))))
+                :else
+                [nil (str "`tree` argument " (+ x 1)
+                          " must be a table.column pair or split=CHAR")]))))))))
 
 (defn- build-tree
   "TODO: Add docstring here"
@@ -512,7 +546,8 @@
    (let [table-details (:table-details config)
          row-start (:row-start config)
          rows (-> table-details (get (keyword table-name)) :rows)
-         col-idx (-> table-details (get (keyword table-name)) :fields (.indexOf parent-column))
+         col-idx (-> table-details (get (keyword table-name)) :fields
+                     (.indexOf (keyword parent-column)))
          trees (get config :trees {})
          ;; tree is a hash-map of sets:
          tree (get trees (keyword add-tree-name))
@@ -555,8 +590,9 @@
                     (recur (+ row-idx 1) (drop 1 remaining-rows) errors))
 
                :else
+               ;; `parents` and `ancestors` are reserved words in clojure, so we use `folks`
                (let [folks (-> parent (split-raw split-char))
-                     errors (->> folks ;; `parents` and `ancestors` are reserved words in clojure
+                     errors (->> folks
                                  (map
                                   (fn [parent]
                                     (when (not-any? #(= parent %) allowed-values)
@@ -589,38 +625,42 @@
 
 (defn- get-table-details
   "TODO: Insert docstring here"
-  [fixed-paths row-start]
-  (->> fixed-paths
-       (map (fn [path]
-              (with-open [reader (io/reader path)]
-                (let [table (-> path (io/file) (.getName)
-                                (string/replace #"\.(c|t)sv$" ""))
-                      sep (if (string/ends-with? path ".csv")
-                            \,
-                            \tab)
-                      [header & data] (doall (csv/read-csv reader :separator sep))
-                      header (->> header (map keyword))
-                      data (if (some #(= table %) ["field" "rule" "datatype"])
-                             data
-                             (-> (- row-start 2) (drop data)))]
+  ([paths row-start]
+   (->> paths
+        (map (fn [path]
+               (with-open [reader (io/reader path)]
+                 (let [table (-> path (io/file) (.getName)
+                                 (string/replace #"\.(c|t)sv$" ""))
+                       sep (if (string/ends-with? path ".csv")
+                             \,
+                             \tab)
+                       [header & data] (doall (csv/read-csv reader :separator sep))
+                       header (->> header (map keyword))
+                       data (if (some #(= table %) ["field" "rule" "datatype"])
+                              data
+                              (-> (- row-start 2) (drop data)))]
+                   {table
+                    {:path path
+                     :fields (->> header (map keyword))
+                     ;; For error reporting purposes we need the order of the headers to
+                     ;; be preserved in the generated rows. Zipmap, the simplest way of
+                     ;; associating header fields with each row column, does not preserve
+                     ;; order, so we need to use the following more complicated method
+                     ;; involving array-map instead:
+                     :rows (->> data
+                                (map (fn [row]
+                                       (->> header
+                                            (map-indexed (fn [idx column]
+                                                           (array-map (nth header idx)
+                                                                      (if (> idx (- (count row) 1))
+                                                                        nil
+                                                                        (nth row idx)))))
+                                            (apply merge)))))}}))))
+        (apply merge)
+        (keywordize-keys)))
 
-                  {table
-                   {:path path
-                    :fields (->> header (map keyword))
-                    ;; For error reporting purposes we need the order of the headers to
-                    ;; be preserved in the generated rows. Zipmap, the simplest way of
-                    ;; associating header fields with each row column, does not preserve
-                    ;; order, so we need to use the following more complicated method
-                    ;; involving array-map instead:
-                    :rows (->> data
-                               (map (fn [row]
-                                      (->> row
-                                           (map-indexed (fn [idx column]
-                                                          (array-map (nth header idx)
-                                                                     (nth row idx))))
-                                           (apply merge)))))}}))))
-       (apply merge)
-       (keywordize-keys)))
+  ([paths]
+   (get-table-details paths 2)))
 
 (defn- validate-table
   "TODO: Insert docstring here"
@@ -628,7 +668,7 @@
   [config table]
   (let [table-name (name table)
         table-details (:table-details config)
-        fields (merge (:table-fields config)
+        fields (merge (-> config :table-fields (get table {}))
                       (-> config :table-fields (get :* {})))
         rules (merge (-> config :table-rules (get table {}))
                      (-> config :*))
@@ -778,15 +818,10 @@
        []
        ;; Otherwise ...
        (let [message (if message
-                       (-> message
-                           (string/replace #"\{table\}" table)
-                           (string/replace #"\{column\}" (name column))
-                           (string/replace #"\{row-idx\}" (str row-idx))
-                           (string/replace #"\{condition\}" (parsed-to-str config
-                                                                           {:type "function"
-                                                                            :name "any"
-                                                                            :args args}))
-                           (string/replace #"\{value\}" value))
+                       (update-message config table column row-idx {:type "function"
+                                                                    :name "any"
+                                                                    :args args}
+                                       value message)
                        (str "'" value "' must meet one of: " (string/join ", " conditions)))]
          (vector (error config table column row-idx message))))))
 
@@ -796,7 +831,6 @@
 (defn- validate-concat
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-concat")
    (let [datatypes (:datatypes config)
          [validate-conditions
           validate-values
@@ -823,25 +857,21 @@
                                   messages
                                   rem
                                   false)
-                           (let [pre (-> (or rem "")
-                                         (string/split (re-pattern arg-val) 1)
+                           (let [arg-val (-> arg-val (string/replace #"^\"|\"$" ""))
+                                 pre (-> (or rem "")
+                                         (string/split (re-pattern arg-val) 2)
                                          (first))
                                  rem (-> (or rem "")
-                                         (string/split (re-pattern arg-val) 1)
+                                         (string/split (re-pattern arg-val) 2)
                                          (second))]
                              (cond
                                (empty? rem)
                                (let [message (if message
-                                               (-> message
-                                                   (string/replace #"\{table\}" table)
-                                                   (string/replace #"\{column\}" (name column))
-                                                   (string/replace #"\{row-idx\}" (str row-idx))
-                                                   (string/replace #"\{condition\}"
-                                                                   (parsed-to-str config
-                                                                                  {:type "function"
-                                                                                   :name "concat"
-                                                                                   :args args}))
-                                                   (string/replace #"\{value\}" value))
+                                               (update-message config table column row-idx
+                                                               {:type "function"
+                                                                :name "concat"
+                                                                :args args}
+                                                               value message)
                                                (str "'" value "' must contain substring '"
                                                     arg-val "'"))]
                                  (recur (drop 1 remaining-args)
@@ -860,7 +890,6 @@
                                       messages
                                       rem
                                       false)))))
-                       ;; Else if the arg type is other than string:
                        (recur (drop 1 remaining-args)
                               (conj validate-conditions arg)
                               validate-values
@@ -869,7 +898,6 @@
                               false)))))]
 
      (if-not (empty? messages)
-       ;; If there are error messages present after going through the above loop, exit immediately:
        messages
        ;; Otherwise generate error messages based on the contents of validate-values and
        ;; validate-conditions and return them:
@@ -891,7 +919,6 @@
 (defn validate-distinct
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-distinct")
    (let [get-indexes (fn [seekwence item]
                        ;; 'sequence' is a reserved word in clojure.
                        (->> seekwence
@@ -907,9 +934,9 @@
          base-values (->> base-rows (map #(get % (keyword column))))
          value-indexes (get-indexes base-values value)
          duplicate-locs (-> (if (-> value-indexes (count) (> 1))
-                              (let [col-idx (-> (.indexOf base-headers column) (+ 1))]
+                              (let [col-idx (-> (.indexOf base-headers (keyword column)) (+ 1))]
                                 (->> value-indexes
-                                     (filter #(= % row-idx))
+                                     (filter #(not= % row-idx))
                                      (map #(-> % (+ row-start) (idx-to-a1 col-idx)))
                                      (map #(str table ":" %))
                                      (set)))
@@ -927,7 +954,8 @@
                                                  tvalues (->> trows (map #(get % (keyword c))))]
                                              (when (some #(= value %) tvalues)
                                                (let [value-indexes (get-indexes tvalues value)
-                                                     col-idx (-> (.indexOf theaders c) (+ 1))]
+                                                     col-idx (-> (.indexOf theaders (keyword c))
+                                                                 (+ 1))]
                                                  (->> value-indexes
                                                       (map #(-> % (+ row-start) (idx-to-a1
                                                                                  col-idx)))
@@ -937,16 +965,10 @@
      (if (empty? duplicate-locs)
        []
        (let [message (if-not (empty? message)
-                       (-> message
-                           (string/replace #"\{table\}" table)
-                           (string/replace #"\{column\}" (name column))
-                           (string/replace #"\{row-idx\}" (str row-idx))
-                           (string/replace #"\{condition\}"
-                                           (parsed-to-str config
-                                                          {:type "function"
-                                                           :name "distinct"
-                                                           :args args}))
-                           (string/replace #"\{value\}" value))
+                       (update-message config table column row-idx {:type "function"
+                                                                    :name "distinct"
+                                                                    :args args}
+                                       value message)
                        (str "'" value "' must be distinct with value(s) at: "
                             (string/join ", " duplicate-locs)))]
          (-> (error config table column row-idx message) (vector))))))
@@ -957,58 +979,57 @@
 (defn validate-in
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-in with value:" value)
    (let [table-details (:table-details config)
          last-arg (last args)
          match-case (or (-> last-arg :type (not= "named-arg"))
                         (-> last-arg :value (string/lower-case) (not= "false")))
-         allowed (try
-                   (->> args
-                        (map (fn [arg]
-                               (if (= (:type arg) "string")
-                                 (if (or (-> arg :value (= value))
-                                         (-> arg :value (= (str "\"" value "\""))))
-                                   (throw (Exception. "OK"))
-                                   (str "\"" (:value arg) "\""))
-                                 (let [table-name (:table arg)
-                                       column-name (:column arg)
-                                       source-rows (-> table-details (get (keyword table-name))
-                                                       :rows)]
-                                   (if match-case
-                                     (let [allowed-values
-                                           (->> source-rows
-                                                (map #(get % (keyword column-name)))
-                                                (remove nil?))]
-                                       (when (some #(= % value) allowed-values)
-                                         (throw (Exception. "OK"))))
-                                     (let [allowed-values (->> source-rows
-                                                               (map #(get % (keyword column-name)))
-                                                               (remove nil?)
-                                                               (map string/lower-case))]
-                                       (when (some #(-> value (string/lower-case) (= %))
-                                                   allowed-values)
-                                         (throw (Exception. "OK")))))
-                                   (str table-name "." column-name)))))
-                        (vec))
-                   (catch Exception e
-                     (if (= "OK" (-> e (.getMessage)))
-                       ;; Return empty list:
-                       []
-                       ;; Otherwise re-throw:
-                       (throw e))))]
+         args (if (-> last-arg :type (not= "named-arg"))
+                args
+                (take (- (count args) 1) args))
+         allowed (loop [remaining-args args
+                        allowed []]
+                   (let [arg (first remaining-args)]
+                     (if-not arg
+                       allowed
+                       (if (= (:type arg) "string")
+                         (if (or (-> arg :value (= value))
+                                 (-> arg :value (= (str "\"" value "\""))))
+                           ;; Return an empty list:
+                           []
+                           (recur (drop 1 remaining-args)
+                                  (conj allowed
+                                        (str "\"" (:value arg) "\""))))
+                         (let [table-name (:table arg)
+                               column-name (:column arg)
+                               source-rows (-> table-details (get (keyword table-name))
+                                               :rows)
+                               allowed-values (if match-case
+                                                (->> source-rows
+                                                     (map #(get % (keyword column-name)))
+                                                     (remove nil?))
+                                                (->> source-rows
+                                                     (map #(get % (keyword column-name)))
+                                                     (remove nil?)
+                                                     (map string/lower-case)))]
+                           (if match-case
+                             (if (some #(= % value) allowed-values)
+                               []
+                               (recur (drop 1 remaining-args)
+                                      (conj allowed
+                                            (str table-name "." column-name))))
+                             (if (some #(-> value (string/lower-case) (= %)) allowed-values)
+                               []
+                               (recur (drop 1 remaining-args)
+                                      (conj allowed
+                                            (str table-name "." column-name))))))))))]
+
      (if (empty? allowed)
        []
        (let [message (if-not (empty? message)
-                       (-> message
-                           (string/replace #"\{table\}" table)
-                           (string/replace #"\{column\}" (name column))
-                           (string/replace #"\{row-idx\}" (str row-idx))
-                           (string/replace #"\{condition\}"
-                                           (parsed-to-str config
-                                                          {:type "function"
-                                                           :name "in"
-                                                           :args args}))
-                           (string/replace #"\{value\}" value))
+                       (update-message config table column row-idx {:type "function"
+                                                                    :name "in"
+                                                                    :args args}
+                                       value message)
                        (str "'" value "' must be in: " (string/join ", " allowed)))]
          (-> (error config table column row-idx message) (vector))))))
 
@@ -1018,8 +1039,9 @@
 (defn validate-list
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-list")
-   (let [split-char (-> args (first) :value)
+   (let [split-char-pre (-> args (first) :value)
+         ;; This is a bit hacky, perhaps (i.e., taking the enclosing quotes away like this):
+         split-char (-> split-char-pre (string/replace #"^\"|\"$" ""))
          expr (second args)
          splits (->> split-char (re-pattern) (string/split value))
          errs (->> splits
@@ -1038,20 +1060,22 @@
 (defn validate-lookup
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-lookup")
    (let [table-details (:table-details config)
          table-rules (-> config :table-rules (get (keyword table)))
          lookup-value (->> table-rules
                            (seq)
                            (map (fn [[whencol rules]]
-                                  (loop [remaining-rules rules]
+                                  (loop [remaining-rules rules
+                                         lookup-value nil]
                                     (let [rule (first remaining-rules)]
-                                      (if (and rule
-                                               (or (->> rule :column (not= column))
-                                                   (->> rule :then-condition :name (not= "lookup"))))
-                                        (recur (drop 1 remaining-rules))
-                                        (-> table-details (get (keyword table)) :rows
-                                            (nth row-idx) (get (keyword whencol))))))))
+                                      (if-not rule
+                                        lookup-value
+                                        (if (or (->> rule :column (not= column))
+                                                (->> rule :then-condition :name (not= "lookup")))
+                                          (recur (drop 1 remaining-rules) lookup-value)
+                                          (-> table-details (get (keyword table)) :rows
+                                              (nth row-idx) (get (keyword whencol)))))))))
+                           (remove nil?)
                            (last))]
      (when (empty? lookup-value)
        (throw
@@ -1077,16 +1101,10 @@
        (if row-errors
          row-errors
          (let [message (if-not (empty? message)
-                         (-> message
-                             (string/replace #"\{table\}" table)
-                             (string/replace #"\{column\}" (name column))
-                             (string/replace #"\{row-idx\}" (str row-idx))
-                             (string/replace #"\{condition\}"
-                                             (parsed-to-str config
-                                                            {:type "function"
-                                                             :name "lookup"
-                                                             :args args}))
-                             (string/replace #"\{value\}" value))
+                         (update-message config table column row-idx {:type "function"
+                                                                      :name "lookup"
+                                                                      :args args}
+                                         value message)
                          (str "'" value "' must be present in: " search-table "." return-column))]
            (-> (error config table column row-idx message) (vector)))))))
 
@@ -1096,22 +1114,25 @@
 (defn validate-sub
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-sub")
    (let [regex (first args)
          subfunc (second args)
-         flags (:flags regex)
-         [flags count ignore-case] (if (and flags
-                                            (-> flags (.indexOf "g") (not= -1)))
-                                     [(string/replace flags #"g" "") 0 false]
-                                     [flags 1 false])
-         [flags count ignore-case] (if (and flags
-                                            (-> flags (.indexOf "i") (not= -1)))
-                                     [(string/replace flags #"i" "") count true]
-                                     [flags count ignore-case])
-         pattern (->> regex :pattern (str "?(" flags ")"))
-         value (if ignore-case ;; TODO: Implement this part.
-                 value
-                 value)]
+         flags (-> regex :flags (string/join))
+         ;;_ (log/debug "Initial flags are:" flags)
+         [flags global?] (if (and (not-empty flags)
+                                  (-> flags (.indexOf "g") (not= -1)))
+                           [(string/replace flags #"g" "") true]
+                           [flags false])
+         pattern (if-not (empty? flags)
+                   (->> regex :pattern (str "?(" flags ")"))
+                   (:pattern regex))
+         replace (:replace regex)
+         ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+         ;; TODO: This shadowing of pattern is a temporary hack. Remove it later and do this properly:
+         pattern #"([+-]+|\[.+\][+-]*)$"
+         ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+         value (if global?
+                 (string/replace value pattern replace)
+                 (string/replace-first value pattern replace))]
 
      (validate-condition config subfunc table column row-idx value message)))
 
@@ -1121,7 +1142,6 @@
 (defn validate-not
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   ;;(log/debug "In function validate-not")
    (loop [remaining-args args]
      (let [arg (first remaining-args)]
        (if-not arg
@@ -1129,19 +1149,11 @@
          (let [messages (validate-condition config arg table column row-idx value)]
            (if-not (empty? messages)
              (recur (drop 1 remaining-args))
-             ;; TODO: Add an 'update-message' function like the one in valve.py and call it
-             ;; here, and also in many other similar places, to save lines of code.
              (let [message (if-not (empty? message)
-                             (-> message
-                                 (string/replace #"\{table\}" table)
-                                 (string/replace #"\{column\}" (name column))
-                                 (string/replace #"\{row-idx\}" (str row-idx))
-                                 (string/replace #"\{condition\}"
-                                                 (parsed-to-str config
-                                                                {:type "function"
-                                                                 :name "not"
-                                                                 :args args}))
-                                 (string/replace #"\{value\}" value))
+                             (update-message config table column row-idx {:type "function"
+                                                                          :name "not"
+                                                                          :args args}
+                                             value message)
                              (-> (parsed-to-str config arg)
                                  (#(if (= % "blank")
                                      "value must not be blank"
@@ -1154,7 +1166,9 @@
 (defn has-ancestor
   "TODO: Insert docstring here"
   ([tree ancestor node direct?]
-   (let [parents (get tree (keyword node))]
+   (let [folks (get tree (keyword node))
+         ;; One could (perhaps) argue that replacing enclosing quotes in this way is hacky ...
+         ancestor (string/replace ancestor #"^\"|\"$" "")]
      (cond
        (and (= node ancestor)
             (not direct?))
@@ -1163,20 +1177,20 @@
        (not (-> tree (contains? (keyword node))))
        false
 
-       (some #(= ancestor %) parents)
+       (contains? folks ancestor)
        true
 
        direct?
        false
 
        :else
-       (loop [remaining-parents parents]
-         (let [parent (first remaining-parents)]
-           (if-not parent
+       (loop [remaining-folks folks]
+         (let [folk (first remaining-folks)]
+           (if-not folk
              false
-             (if (has-ancestor tree ancestor parent)
+             (if (has-ancestor tree ancestor folk)
                true
-               (recur (drop 1 remaining-parents)))))))))
+               (recur (drop 1 remaining-folks)))))))))
 
   ([tree ancestor node]
    (has-ancestor tree ancestor node false)))
@@ -1184,7 +1198,6 @@
 (defn validate-under
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
-   (log/debug "In function validate-under with args:" args)
    (let [trees (:trees config)
          table-name (-> args (first) :table)
          column-name (-> args (first) :column)
@@ -1197,21 +1210,15 @@
      (let [tree (get trees (keyword tree-name))
            ancestor (-> args (second) :value)
            direct? (boolean
-                    (when (> (count args) 2)
+                    (when (= (count args) 3)
                       (-> args (nth 2) :value (string/lower-case) (= "true"))))]
        (if (has-ancestor tree ancestor value direct?)
          []
          (let [message (if-not (empty? message)
-                         (-> message
-                             (string/replace #"\{table\}" table)
-                             (string/replace #"\{column\}" (name column))
-                             (string/replace #"\{row-idx\}" (str row-idx))
-                             (string/replace #"\{condition\}"
-                                             (parsed-to-str config
-                                                            {:type "function"
-                                                             :name "under"
-                                                             :args args}))
-                             (string/replace #"\{value\}" value))
+                         (update-message config table column row-idx {:type "function"
+                                                                      :name "under"
+                                                                      :args args}
+                                         value message)
                          (str "'" value "' must be "
                               (if-not direct?
                                 "equal to or under"
@@ -1226,7 +1233,6 @@
 (defn check-lookup
   "TODO: Insert docstring here"
   [config table column args]
-  (log/debug "In check-lookup function")
   (loop [break? false
          errors []
          i 0
@@ -1638,8 +1644,15 @@
                       (recur (drop 1 remaining-rows) row-idx trees table-fields config messages))))
 
                 :else
-                ;; Otherwise add to table-fields
-                (recur (drop 1 remaining-rows) row-idx trees table-fields config messages)))))))))
+                (let [field-types (assoc field-types
+                                         (keyword column) {:parsed parsed-condition
+                                                           :field-id row-idx
+                                                           :message (:message row)})
+                      table-fields (assoc table-fields
+                                          (keyword table) field-types)
+                      config (assoc config :table-fields table-fields)]
+                  (recur (drop 1 remaining-rows)
+                         row-idx trees table-fields config messages))))))))))
 
 (defn- check-for-duplicates
   "TODO: Insert docstring here"
@@ -1700,7 +1713,22 @@
                                       (some #(= (:table msg) %) '("datatype" "field" "rule")))))]
 
      (if-not (empty? kill-messages)
+     ;;(if true ;; <-- Only for dev; remove later:
        (do
+         ;; It has been verified that these match the corresponding records in python:
+         ;;(println (keys config))
+         ;;(pprint (:functions config))
+         ;;(pprint (:table-details config))
+         ;;(pprint (:row-start config))
+         ;;(pprint (:datatypes config))
+         ;;(pprint (:trees config))
+         ;;(pprint (:table-fields config))
+         ;;(pprint (:table-rules config))
+
+         ;; Only for dev; remove later:
+         ;;(doseq [msg setup-messages]
+         ;;  (println msg))
+
          (log/error "VALVE configuration completed with" (count kill-messages) "errors")
          (doseq [msg kill-messages]
            (println msg))
@@ -1715,6 +1743,10 @@
                                                  (filter #(= (name table) (:table %)))
                                                  (concat (validate-table config table)))]
                            (log/info (count add-messages) "problems found in table" table)
+                           (log/info "*********** HERE THEY ARE ************")
+                           (doseq [msg add-messages]
+                             (log/info msg))
+                           (log/info "**************************************")
                            (if (and (not-empty add-messages) (not-empty distinct-messages))
                              (let [table-path (-> table-details (get table) :path)
                                    update-errors (collect-distinct-messages table-details

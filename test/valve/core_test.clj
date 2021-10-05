@@ -20,7 +20,7 @@
               "validate" validate-custom-2}})
 
 (def ^:private
-  paths ["test/resources/inputs"])
+  paths ["../valve/tests/inputs"])
 
 (deftest test-validate-custom-funcs
   (testing "Validate test"
@@ -28,7 +28,8 @@
 
 (deftest test-end-to-end
   (testing "End-to-end test"
-    (-> ["-o" "output.csv" "-d" "test/resources/distinct"]
-        (concat paths)
-        (handle-cli-opts)
-        (#(is (= 0 %))))))
+    (-> ;;["-o" "output.tsv" "-d" "test/resources/distinct"]
+     ["-o" "output.tsv"]
+     (concat paths)
+     (handle-cli-opts)
+     (#(is (= 0 %))))))
