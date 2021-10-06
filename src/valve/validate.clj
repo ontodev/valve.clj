@@ -13,6 +13,9 @@
             ;; to bring the :valve.spec/... namespaces into scope.
             [valve.spec]))
 
+;; TODO: Have a check to see which of the functions in this module need to be public and which can
+;; be private.
+
 (defn- idx-to-a1
   "TODO: Insert docstring here"
   [row col]
@@ -1114,26 +1117,22 @@
 (defn validate-sub
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
+   ;; Note that we assume, as input, perl-style syntax.
    (let [regex (first args)
          subfunc (second args)
          flags (-> regex :flags (string/join))
-         ;;_ (log/debug "Initial flags are:" flags)
          [flags global?] (if (and (not-empty flags)
                                   (-> flags (.indexOf "g") (not= -1)))
                            [(string/replace flags #"g" "") true]
                            [flags false])
-         pattern (if-not (empty? flags)
-                   (->> regex :pattern (str "?(" flags ")"))
-                   (:pattern regex))
+         pattern (-> (if-not (empty? flags)
+                       (->> regex :pattern (str "(?" flags ")"))
+                       (:pattern regex))
+                     (re-pattern))
          replace (:replace regex)
-         ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-         ;; TODO: This shadowing of pattern is a temporary hack. Remove it later and do this properly:
-         pattern #"([+-]+|\[.+\][+-]*)$"
-         ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
          value (if global?
                  (string/replace value pattern replace)
                  (string/replace-first value pattern replace))]
-
      (validate-condition config subfunc table column row-idx value message)))
 
   ([config args table column row-idx value]
