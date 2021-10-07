@@ -5,33 +5,59 @@
             [valve.cli-handler :refer [handle-cli-opts]]
             [valve.validate :refer [validate]]))
 
-(defn- validate-custom-1
+(defn- validate-custom-one
   [config args table column row-idx value]
-  {:abba "gabba"})
+  [])
 
-(defn- validate-custom-2
+(defn- validate-custom-two
   [config args table column row-idx value]
-  {:abba "gabba"})
+  [])
 
-(def ^:private custom-functions
-  {:custom-1 {"usage" "any(expression+)"
-              "check" ["expression+"]
-              "validate" validate-custom-1}
-   :custom-2 {"usage" "any(expression+)"
-              "check" ["expression+"]
-              "validate" validate-custom-2}})
+(defn- validate-custom-three
+  [config args table row-idx value]
+  [])
+
+(defn- validate-custom-four
+  [config args table column value]
+  [])
+
+(def ^:private valid-custom-functions
+  {:custom-one {"usage" "custom-one(expression+)"
+                "check" ["expression+"]
+                "validate" validate-custom-one}
+   :custom-two {"usage" "custom-two(expression+)"
+                "check" ["expression+"]
+                "validate" validate-custom-two}})
+
+(def ^:private invalid-custom-functions
+  {:custom-three {"usage" "custom-three(expression+)"
+                  "check" ["expression+"]
+                  "validate" validate-custom-three}
+   :custom-four {"usage" "custom-four(expression+)"
+                 "check" ["expression+"]
+                 "validate" validate-custom-four}})
 
 (def ^:private
   paths ["../valve/tests/inputs"])
 
-;; TODO: I'm not sure what the expected output of this test case should be:
-(deftest test-validate-custom-funcs
+(deftest test-validate-valid-custom-funcs
   (testing "Validate test"
-    (is (= [] (validate {:paths paths
-                         :custom-functions custom-functions
-                         :custom-namespace "valve.core-test"
-                         :distinct-messages "test/output/distinct"
-                         :row-start 2})))))
+    ;; There is no assertion test because this test is considered to pass as long as no
+    ;; exception is thrown.
+    (validate {:paths paths
+               :custom-functions valid-custom-functions
+               :custom-namespace "valve.core-test"
+               :distinct-messages "test/output/distinct"
+               :row-start 2})))
+
+(deftest test-validate-invalid-custom-funcs
+  (testing "Validate test"
+    (is (thrown? Exception
+                 (validate {:paths paths
+                            :custom-functions invalid-custom-functions
+                            :custom-namespace "valve.core-test"
+                            :distinct-messages "test/output/distinct"
+                            :row-start 2})))))
 
 (deftest test-end-to-end
   (testing "End-to-end test"

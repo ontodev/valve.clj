@@ -13,7 +13,7 @@
             ;; to bring the :valve.spec/... namespaces into scope.
             [valve.spec]))
 
-(defn- idx-to-a1
+(defn idx-to-a1
   "TODO: Insert docstring here"
   [row col]
   (loop [div col
@@ -30,7 +30,7 @@
         (str column-label row)
         (recur div column-label)))))
 
-(defn- error
+(defn error
   "TODO: Add docstring here"
   [{:keys [config table column row-idx message level suggestion]
     :or {level "ERROR"}}]
@@ -51,7 +51,7 @@
       (assoc err :suggestion suggestion)
       err)))
 
-(defn- parsed-to-str
+(defn parsed-to-str
   "TODO: Insert docstring here"
   [config condition]
   (let [cond-type (:type condition)]
@@ -95,7 +95,7 @@
       :else
       (throw (Exception. (str "Unknown condition type: " cond-type))))))
 
-(defn- update-message
+(defn update-message
   "TODO: Add docstring here"
   [config table column row-idx condition value message]
   (-> message
@@ -105,7 +105,7 @@
       (string/replace #"\{condition\}" (parsed-to-str config condition))
       (string/replace #"\{value\}" value)))
 
-(defn- check-arg
+(defn check-arg
   "TODO: Add docstring here"
   [config table arg expected]
   (cond
@@ -181,7 +181,7 @@
     :else
     (str "Unknown argument type: " expected)))
 
-(defn- check-args
+(defn check-args
   "TODO: Add docstring here"
   [config function args table column condition-name]
   (let [check (:check function)]
@@ -341,7 +341,7 @@
                        add-msg
                        false)))))))))
 
-(defn- check-function
+(defn check-function
   "TODO: Add docstring here"
   [config table column parsed]
   (let [function-name (:name parsed)
@@ -384,7 +384,7 @@
       :else
       (spec/explain-str :valve.spec.function/args args))))
 
-(defn- validate-datatype
+(defn validate-datatype
   "TODO: Add docstring here"
   [config condition table column row-idx value]
   (letfn [(find-ancestors [datatypes datatype]
@@ -432,7 +432,7 @@
                         (vector)))
                   (recur (drop 1 ancestors)))))))))))
 
-(defn- validate-condition
+(defn validate-condition
   "TODO: Add docstring here"
   ([config condition table column row-idx value message]
    (cond
@@ -451,7 +451,7 @@
   ([config condition table column row-idx value]
    (validate-condition config condition table column row-idx value nil)))
 
-(defn- parse-condition
+(defn parse-condition
   "TODO: Insert docstring here"
   [config table column condition]
   (let [parsed (parse condition)]
@@ -470,14 +470,14 @@
       :else
       [nil, (str "Invalid condition '" condition "'")])))
 
-(defn- build-condition
+(defn build-condition
   "TODO: Insert docstring here"
   [config table column condition]
   (let [[parsed err] (parse-condition config table column condition)]
     (when err (throw (Exception. err)))
     parsed))
 
-(defn- check-config-contents
+(defn check-config-contents
   "TODO: Add docstring here"
   [config table conditions rows]
   (let [parsed-conditions (->> conditions
@@ -500,7 +500,7 @@
     ;; Return any generated error messages:
     messages))
 
-(defn- get-tree-options
+(defn get-tree-options
   "TODO: Add docstring here"
   [tree-function]
   (let [args (:args tree-function)]
@@ -539,7 +539,7 @@
                 [nil (str "`tree` argument " (+ x 1)
                           " must be a table.column pair or split=CHAR")]))))))))
 
-(defn- build-tree
+(defn build-tree
   "TODO: Add docstring here"
   ([config fn-row-idx table-name parent-column child-column add-tree-name split-char]
    (let [table-details (:table-details config)
@@ -622,7 +622,7 @@
   ([config fn-row-idx table-name parent-column child-column]
    (build-tree config fn-row-idx table-name parent-column child-column nil "|")))
 
-(defn- get-table-details
+(defn get-table-details
   "TODO: Insert docstring here"
   ([paths row-start]
    (->> paths
@@ -661,7 +661,7 @@
   ([paths]
    (get-table-details paths 2)))
 
-(defn- validate-table
+(defn validate-table
   "TODO: Insert docstring here"
   ;; Note: `table` is a keyword.
   [config table]
@@ -731,7 +731,7 @@
          (remove nil?)
          (#(or % '())))))
 
-(defn- collect-distinct-messages
+(defn collect-distinct-messages
   "TODO: Insert docstring here"
   [table-details output-dir table messages]
   (let [distinct-messages (->> messages
@@ -796,7 +796,7 @@
             messages))))))
 
 ;; Builtin validate functions
-(defn- validate-any
+(defn validate-any
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (let [conditions
@@ -831,7 +831,7 @@
   ([config args table column row-idx value]
    (validate-any config args table column row-idx value nil)))
 
-(defn- validate-concat
+(defn validate-concat
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (let [datatypes (:datatypes config)
@@ -920,7 +920,7 @@
   ([config args table column row-idx value]
    (validate-concat config args table column row-idx value nil)))
 
-(defn- validate-distinct
+(defn validate-distinct
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (let [get-indexes (fn [seekwence item]
@@ -981,7 +981,7 @@
   ([config args table column row-idx value]
    (validate-distinct config args table column row-idx value nil)))
 
-(defn- validate-in
+(defn validate-in
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (let [table-details (:table-details config)
@@ -1042,7 +1042,7 @@
   ([config args table column row-idx value]
    (validate-in config args table column row-idx value nil)))
 
-(defn- validate-list
+(defn validate-list
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (let [split-char-pre (-> args (first) :value)
@@ -1063,7 +1063,7 @@
   ([config args table column row-idx value]
    (validate-list config args table column row-idx value nil)))
 
-(defn- validate-lookup
+(defn validate-lookup
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (let [table-details (:table-details config)
@@ -1123,7 +1123,7 @@
   ([config args table column row-idx value]
    (validate-lookup config args table column row-idx value nil)))
 
-(defn- validate-sub
+(defn validate-sub
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    ;; Note that we assume, as input, perl-style syntax.
@@ -1147,7 +1147,7 @@
   ([config args table column row-idx value]
    (validate-sub config args table column row-idx value nil)))
 
-(defn- validate-not
+(defn validate-not
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (loop [remaining-args args]
@@ -1172,7 +1172,7 @@
   ([config args table column row-idx value]
    (validate-not config args table column row-idx value nil)))
 
-(defn- has-ancestor
+(defn has-ancestor
   "TODO: Insert docstring here"
   ([tree ancestor node direct?]
    (let [folks (get tree (keyword node))
@@ -1204,7 +1204,7 @@
   ([tree ancestor node]
    (has-ancestor tree ancestor node false)))
 
-(defn- validate-under
+(defn validate-under
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (let [trees (:trees config)
@@ -1240,7 +1240,7 @@
    (validate-under config args table column row-idx value nil)))
 
 ;; Builtin check functions:
-(defn- check-lookup
+(defn check-lookup
   "TODO: Insert docstring here"
   [config table column args]
   (loop [break? false
@@ -1364,7 +1364,7 @@
    [:then-condition "not(blank)"]
    [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]])
 
-(defn- check-custom
+(defn check-custom
   "TODO: Insert docstring here"
   [[func-name details custom-namespace]]
   (when (contains? default-functions func-name)
@@ -1404,7 +1404,7 @@
     ;; After validating the given custom function's details, return them unchanged:
     [func-name details]))
 
-(defn- check-rows
+(defn check-rows
   "TODO: Insert docstring here"
   [config spec table rows row-start]
   ;; Returns a list of error messages
@@ -1442,7 +1442,7 @@
        (remove nil?)
        (flatten)))
 
-(defn- configure-datatypes
+(defn configure-datatypes
   "TODO: Add docstring here"
   [[config messages] row-start]
   (let [datatype (or (-> config :table-details :datatype)
@@ -1477,7 +1477,7 @@
           ;; We are done. Return the new config as well as any error messages:
           [config messages])))))
 
-(defn- configure-rules
+(defn configure-rules
   "TODO: Add docstring here"
   [[config messages] row-start]
   (if-not (-> config :table-details (contains? :rule))
@@ -1579,7 +1579,7 @@
                       (recur (drop 1 remaining-rows) row-idx column-rules table-rules rules
                              messages))))))))))))
 
-(defn- configure-fields
+(defn configure-fields
   "TODO: Add docstring here"
   [[config messages] row-start]
   (when-not (-> config :table-details (contains? :field))
@@ -1701,7 +1701,7 @@
                   (recur (drop 1 remaining-rows)
                          row-idx trees table-fields config messages))))))))))
 
-(defn- check-for-duplicates
+(defn check-for-duplicates
   "TODO: Insert docstring here"
   [fixed-paths]
   (when-not (->> fixed-paths
