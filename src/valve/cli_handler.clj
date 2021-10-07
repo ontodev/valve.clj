@@ -106,9 +106,11 @@
 
           :else
           (try
-            (let [messages (validate arguments (:distinct options) (:row-start options))]
+            (let [messages (validate {:paths arguments
+                                      :distinct-messages (:distinct options)
+                                      :row-start 2})]
               (if-not (empty? messages)
-                (let [colkeys (->> messages (first) (keys))
+                (let [colkeys '(:table :cell :rule-id :rule :level :message :suggestion)
                       get-values-from-rec (fn [db-rec]
                                             (for [colkey colkeys]
                                               (colkey db-rec)))
@@ -117,7 +119,7 @@
                             \,
                             \tab)]
                   (with-open [writer (io/writer output)]
-                    (csv/write-csv writer [(map name colkeys)])
+                    (csv/write-csv writer [(map name colkeys)] :separator sep)
                     (doseq [rec messages]
                       (csv/write-csv writer [(get-values-from-rec rec)] :separator sep)))
                   ;; Return error status:

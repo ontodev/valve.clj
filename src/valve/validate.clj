@@ -13,9 +13,6 @@
             ;; to bring the :valve.spec/... namespaces into scope.
             [valve.spec]))
 
-;; TODO: Have a check to see which of the functions in this module need to be public and which can
-;; be private.
-
 (defn- idx-to-a1
   "TODO: Insert docstring here"
   [row col]
@@ -35,26 +32,24 @@
 
 (defn- error
   "TODO: Add docstring here"
-  ([config table column row-idx message level suggestion]
-   (let [row-start (:row-start config)
-         col-idx (-> config
-                     :table-details
-                     (get (keyword table))
-                     :fields
-                     (.indexOf (keyword column)))
-         row-num (if (some #(= table %) ["datatype" "field" "rule"])
-                   row-idx
-                   (+ row-idx row-start))
-         err {:table table
-              :cell (idx-to-a1 row-num (+ 1 col-idx))
-              :level level
-              :message message}]
-     (if suggestion
-       (assoc err :suggestion suggestion)
-       err)))
-
-  ([config table column row-idx message]
-   (error config table column row-idx message "ERROR" nil)))
+  [{:keys [config table column row-idx message level suggestion]
+    :or {level "ERROR"}}]
+  (let [row-start (:row-start config)
+        col-idx (-> config
+                    :table-details
+                    (get (keyword table))
+                    :fields
+                    (.indexOf (keyword column)))
+        row-num (if (some #(= table %) ["datatype" "field" "rule"])
+                  row-idx
+                  (+ row-idx row-start))
+        err {:table table
+             :cell (idx-to-a1 row-num (+ 1 col-idx))
+             :level level
+             :message message}]
+    (if suggestion
+      (assoc err :suggestion suggestion)
+      err)))
 
 (defn- parsed-to-str
   "TODO: Insert docstring here"
@@ -432,7 +427,8 @@
                                          (string/split #"/")
                                          ((fn [[_ pattern replacement]]
                                             (string/replace value pattern replacement)))))]
-                    (-> (error config table column row-idx message level suggestion)
+                    (-> (error {:config config :table table :column column :row-idx row-idx
+                                :message message :level level :suggestion suggestion})
                         (vector)))
                   (recur (drop 1 ancestors)))))))))))
 
@@ -735,7 +731,7 @@
          (remove nil?)
          (#(or % '())))))
 
-(defn collect-distinct-messages
+(defn- collect-distinct-messages
   "TODO: Insert docstring here"
   [table-details output-dir table messages]
   (let [distinct-messages (->> messages
@@ -767,7 +763,10 @@
         sep (if (= "csv" table-ext) \, \tab)
         output (str output-dir "/" table-name "_distinct." table-ext)
         fields (-> table-details (get (keyword table-name)) :fields)
-        rows (-> table-details (get (keyword table-name)) :rows)]
+        rows (-> table-details (get (keyword table-name)) :rows)
+        get-values-from-row (fn [row]
+                              (for [header-key fields]
+                                (header-key row)))]
 
     (log/info (count distinct-messages) "distinct error(s) found in" table)
     (log/info "writing rows with errors to" output)
@@ -790,14 +789,14 @@
                                                           (string/replace #"^([^\d]+)\d+" "$1")
                                                           (str new-idx)))))
                                   (concat messages))]
-                (csv/write-csv writer (vector row) :separator sep)
+                (csv/write-csv writer [(get-values-from-row row)] :separator sep)
                 (recur (drop 1 rows) messages (+ 1 row-idx) (+ 1 new-idx)))
               (recur (drop 1 rows) messages (+ 1 row-idx) new-idx))
             ;; If there are no more rows to process, return the generated messages:
             messages))))))
 
 ;; Builtin validate functions
-(defn validate-any
+(defn- validate-any
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (let [conditions
@@ -826,7 +825,8 @@
                                                                     :args args}
                                        value message)
                        (str "'" value "' must meet one of: " (string/join ", " conditions)))]
-         (vector (error config table column row-idx message))))))
+         (vector (error {:config config :table table :column column :row-idx row-idx
+                         :message message}))))))
 
   ([config args table column row-idx value]
    (validate-any config args table column row-idx value nil)))
@@ -881,7 +881,8 @@
                                         validate-conditions
                                         validate-values
                                         (conj messages
-                                              (error config table column row-idx message))
+                                              (error {:config config :table table :column column
+                                                      :row-idx row-idx :message message}))
                                         rem
                                         ;; This error causes us to break out of the loop:
                                         true))
@@ -919,7 +920,7 @@
   ([config args table column row-idx value]
    (validate-concat config args table column row-idx value nil)))
 
-(defn validate-distinct
+(defn- validate-distinct
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (let [get-indexes (fn [seekwence item]
@@ -974,12 +975,13 @@
                                        value message)
                        (str "'" value "' must be distinct with value(s) at: "
                             (string/join ", " duplicate-locs)))]
-         (-> (error config table column row-idx message) (vector))))))
+         (-> (error {:config config :table table :column column :row-idx row-idx :message message})
+             (vector))))))
 
   ([config args table column row-idx value]
    (validate-distinct config args table column row-idx value nil)))
 
-(defn validate-in
+(defn- validate-in
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (let [table-details (:table-details config)
@@ -1034,12 +1036,13 @@
                                                                     :args args}
                                        value message)
                        (str "'" value "' must be in: " (string/join ", " allowed)))]
-         (-> (error config table column row-idx message) (vector))))))
+         (-> (error {:config config :table table :column column :row-idx row-idx :message message})
+             (vector))))))
 
   ([config args table column row-idx value]
    (validate-in config args table column row-idx value nil)))
 
-(defn validate-list
+(defn- validate-list
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (let [split-char-pre (-> args (first) :value)
@@ -1054,13 +1057,13 @@
        (->> errs
             (map #(:message %))
             (string/join "; ")
-            (error config table column row-idx)
+            (error {:config config :table table :column column :row-idx row-idx})
             (vector))
        [])))
   ([config args table column row-idx value]
    (validate-list config args table column row-idx value nil)))
 
-(defn validate-lookup
+(defn- validate-lookup
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (let [table-details (:table-details config)
@@ -1095,9 +1098,13 @@
                               (if (= maybe-value lookup-value)
                                 (let [expected (get row (keyword return-column))]
                                   (if (not= value expected)
-                                    (-> (error config table column row-idx
-                                               (str "'" value "' must be '" expected "'")
-                                               "ERROR" expected)
+                                    (-> (error {:config config
+                                                :table table
+                                                :column column
+                                                :row-idx row-idx
+                                                :message (str "'" value "' must be '" expected "'")
+                                                :level "ERROR"
+                                                :suggestion expected})
                                         (vector))
                                     []))
                                 (recur (drop 1 remaining-rows)))))))]
@@ -1109,12 +1116,14 @@
                                                                       :args args}
                                          value message)
                          (str "'" value "' must be present in: " search-table "." return-column))]
-           (-> (error config table column row-idx message) (vector)))))))
+           (-> (error {:config config :table table :column column :row-idx row-idx
+                       :message message})
+               (vector)))))))
 
   ([config args table column row-idx value]
    (validate-lookup config args table column row-idx value nil)))
 
-(defn validate-sub
+(defn- validate-sub
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    ;; Note that we assume, as input, perl-style syntax.
@@ -1138,7 +1147,7 @@
   ([config args table column row-idx value]
    (validate-sub config args table column row-idx value nil)))
 
-(defn validate-not
+(defn- validate-not
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (loop [remaining-args args]
@@ -1157,12 +1166,13 @@
                                  (#(if (= % "blank")
                                      "value must not be blank"
                                      (str "'" value "' must not be '" % "'")))))]
-               (vector (error config table column row-idx message)))))))))
+               (vector (error {:config config :table table :column column :row-idx row-idx
+                               :message message})))))))))
 
   ([config args table column row-idx value]
    (validate-not config args table column row-idx value nil)))
 
-(defn has-ancestor
+(defn- has-ancestor
   "TODO: Insert docstring here"
   ([tree ancestor node direct?]
    (let [folks (get tree (keyword node))
@@ -1194,7 +1204,7 @@
   ([tree ancestor node]
    (has-ancestor tree ancestor node false)))
 
-(defn validate-under
+(defn- validate-under
   "TODO: Insert docstring here"
   ([config args table column row-idx value message]
    (let [trees (:trees config)
@@ -1223,13 +1233,14 @@
                                 "equal to or under"
                                 "a direct subclass of")
                               " '" ancestor "' from " tree-name))]
-           (vector (error config table column row-idx message)))))))
+           (vector (error {:config config :table table :column column :row-idx row-idx
+                           :message message})))))))
 
   ([config args table column row-idx value]
    (validate-under config args table column row-idx value nil)))
 
 ;; Builtin check functions:
-(defn check-lookup
+(defn- check-lookup
   "TODO: Insert docstring here"
   [config table column args]
   (loop [break? false
@@ -1506,22 +1517,33 @@
               (cond
                 (-> config :table-details (contains? (keyword table)) (not))
                 (->> (conj messages
-                           (error config "rule" "table" row-idx
-                                  (str "unrecognized table '" table "'")))
+                           (error {:config config
+                                   :table "rule"
+                                   :column "table"
+                                   :row-idx row-idx
+                                   :message (str "unrecognized table '" table "'")}))
                      (recur (drop 1 remaining-rows) row-idx column-rules table-rules rules))
 
                 (->> config :table-details (#(get % (keyword table))) :fields
                      (some #(= (keyword whencol) %)) (not))
                 (->> (conj messages
-                           (error config "rule" "when column" row-idx
-                                  (str "unrecognized column '" whencol "' for table '" table "'")))
+                           (error {:config config
+                                   :table "rule"
+                                   :column "when column"
+                                   :row-idx row-idx
+                                   :message (str "unrecognized column '" whencol
+                                                 "' for table '" table "'")}))
                      (recur (drop 1 remaining-rows) row-idx column-rules table-rules rules))
 
                 (->> config :table-details (#(get % (keyword table))) :fields
                      (some #(= (keyword thencol) %)) (not))
                 (->> (conj messages
-                           (error config "rule" "then column" row-idx
-                                  (str "unrecognized column '" thencol "' for table '" table "'")))
+                           (error {:config config
+                                   :table "rule"
+                                   :column "then column"
+                                   :row-idx row-idx
+                                   :message (str "unrecognized column '" thencol
+                                                 "' for table '" table "'")}))
                      (recur (drop 1 remaining-rows) row-idx column-rules table-rules rules))
 
                 :else
@@ -1529,11 +1551,19 @@
                       [parsed-then err-then] (parse-condition config table thencol thencond)]
                   (cond
                     err-when
-                    (->> (conj messages (error config "rule" "then condition" row-idx err-when))
+                    (->> (conj messages (error {:config config
+                                                :table "rule"
+                                                :column "then condition"
+                                                :row-idx row-idx
+                                                :message err-when}))
                          (recur (drop 1 remaining-rows) row-idx column-rules table-rules rules))
 
                     err-then
-                    (->> (conj messages (error config "rule" "then condition" row-idx err-then))
+                    (->> (conj messages (error {:config config
+                                                :table "rule"
+                                                :column "then condition"
+                                                :row-idx row-idx
+                                                :message err-then}))
                          (recur (drop 1 remaining-rows) row-idx column-rules table-rules rules))
 
                     :else
@@ -1581,24 +1611,34 @@
             (and (not= table "*")
                  (-> config :table-details (contains? (keyword table)) (not)))
             (->> (conj messages
-                       (error config "field" "table" row-idx
-                              (str "unrecognized table '" table "'")))
+                       (error {:config config
+                               :table "field"
+                               :column "table"
+                               :row-idx row-idx
+                               :message (str "unrecognized table '" table "'")}))
                  (recur (drop 1 remaining-rows) row-idx trees table-fields config))
 
             (and (not= table "*")
                  (->> config :table-details (#(get % (keyword table)))
                       :fields (map name) (some #(= column %)) (not)))
             (->> (conj messages
-                       (error config "field" "column" row-idx
-                              (str "unrecognized column '" column "' for table '"
-                                   table "'")))
+                       (error {:config config
+                               :table "field"
+                               :column "column"
+                               :row-idx row-idx
+                               :message (str "unrecognized column '" column "' for table '"
+                                             table "'")}))
                  (recur (drop 1 remaining-rows) row-idx trees table-fields config))
 
             ;; Check that this table.column pair has not already been defined:
             (contains? field-types (keyword column))
             (->> (conj messages
-                       (error config "field" "column" row-idx
-                              (str "Multiple conditions defined for '" table "." column "'")))
+                       (error {:config config
+                               :table "field"
+                               :column "column"
+                               :row-idx row-idx
+                               :message (str "Multiple conditions defined for '" table "."
+                                             column "'")}))
                  (recur (drop 1 remaining-rows) row-idx trees table-fields config))
 
             :else
@@ -1607,7 +1647,11 @@
               (cond
                 err
                 (->> (conj messages
-                           (error config "field" "condition" row-idx err))
+                           (error {:config config
+                                   :table "field"
+                                   :column "condition"
+                                   :row-idx row-idx
+                                   :message err}))
                      (recur (drop 1 remaining-rows) row-idx trees table-fields config))
 
                 (and (-> parsed-condition :type (= "function"))
@@ -1615,7 +1659,11 @@
                 (let [[tree-opts err] (get-tree-options parsed-condition)]
                   (if err
                     (->> (conj messages
-                               (error config "field" "condition" row-idx err))
+                               (error {:config config
+                                       :table "field"
+                                       :column "condition"
+                                       :row-idx row-idx
+                                       :message err}))
                          (recur (drop 1 remaining-rows) row-idx trees table-fields config))
                     (let [[tree errs] (build-tree config row-idx table column
                                                   (:child-column tree-opts)
@@ -1667,99 +1715,76 @@
 
 (defn validate
   "TODO: Insert docstring here"
-  ([paths custom-functions custom-namespace distinct-messages row-start]
-   (when (and custom-functions
-              (not (instance? java.util.Map custom-functions)))
-     (throw (Exception. "Value for custom-functions must be a map")))
+  [{:keys [paths custom-functions custom-namespace distinct-messages row-start]
+    :or {row-start 2}}]
+  (when (and custom-functions
+             (not (instance? java.util.Map custom-functions)))
+    (throw (Exception. "Value for custom-functions must be a map")))
 
-   (let [;; Register functions:
-         functions (->> custom-functions
-                        (seq)
-                        (map #(conj % custom-namespace))
-                        (map check-custom)
-                        (apply concat)
-                        (apply hash-map)
-                        (merge default-functions)
-                        (keywordize-keys))
+  (let [;; Register functions:
+        functions (->> custom-functions
+                       (seq)
+                       (map #(conj % custom-namespace))
+                       (map check-custom)
+                       (apply concat)
+                       (apply hash-map)
+                       (merge default-functions)
+                       (keywordize-keys))
 
-         ;; Look in the given paths for .tsv and .csv files and collect them into a list. Note
-         ;; that we do not need to verify that non-directory paths end in .csv or .tsv, since
-         ;; we assume this has already been checked by the calling function.
-         fixed-paths (->> paths
-                          (map (fn [path]
-                                 (if-not (-> path (io/file) (.isDirectory))
-                                   (list path)
-                                   (->> path (io/file) (.list)
-                                        (filter #(or (string/ends-with? % ".csv")
-                                                     (string/ends-with? % ".tsv")))
-                                        (map #(str path "/" %))))))
-                          (apply concat))
+        ;; Look in the given paths for .tsv and .csv files and collect them into a list. Note
+        ;; that we do not need to verify that non-directory paths end in .csv or .tsv, since
+        ;; we assume this has already been checked by the calling function.
+        fixed-paths (->> paths
+                         (map (fn [path]
+                                (if-not (-> path (io/file) (.isDirectory))
+                                  (list path)
+                                  (->> path (io/file) (.list)
+                                       (filter #(or (string/ends-with? % ".csv")
+                                                    (string/ends-with? % ".tsv")))
+                                       (map #(str path "/" %))))))
+                         (apply concat))
 
-         ;; Load all tables, error on duplicates
-         table-details (-> fixed-paths (check-for-duplicates) (get-table-details row-start))
+        ;; Load all tables, error on duplicates
+        table-details (-> fixed-paths (check-for-duplicates) (get-table-details row-start))
 
-         ;; Set up the initial configuration:
-         config {:functions functions :table-details table-details :row-start row-start}
+        ;; Set up the initial configuration:
+        config {:functions functions :table-details table-details :row-start row-start}
 
-         ;; Load datatype, field, and rule configuration - stop process on any problems
-         [config setup-messages] (-> [config []]
-                                     (configure-datatypes row-start)
-                                     (configure-fields row-start)
-                                     (configure-rules row-start))
+        ;; Load datatype, field, and rule configuration - stop process on any problems
+        [config setup-messages] (-> [config []]
+                                    (configure-datatypes row-start)
+                                    (configure-fields row-start)
+                                    (configure-rules row-start))
 
-         kill-messages (->> setup-messages
-                            (filter (fn [msg]
-                                      (some #(= (:table msg) %) '("datatype" "field" "rule")))))]
+        kill-messages (->> setup-messages
+                           (filter (fn [msg]
+                                     (some #(= (:table msg) %) '("datatype" "field" "rule")))))]
 
-     (if-not (empty? kill-messages)
-     ;;(if true ;; <-- Only for dev; remove later:
-       (do
-         ;; It has been verified that these match the corresponding records in python:
-         ;;(println (keys config))
-         ;;(pprint (:functions config))
-         ;;(pprint (:table-details config))
-         ;;(pprint (:row-start config))
-         ;;(pprint (:datatypes config))
-         ;;(pprint (:trees config))
-         ;;(pprint (:table-fields config))
-         ;;(pprint (:table-rules config))
+    (if-not (empty? kill-messages)
+      (do
+        (log/error "VALVE configuration completed with" (count kill-messages) "errors")
+        kill-messages)
+      (let [messages
+            (->> table-details
+                 (keys)
+                 (filter (fn [table] (not-any? #(= table %) '(:datatype :field :rule))))
+                 (map (fn [table]
+                        (log/info "Validating" table)
+                        (let [add-messages (->> setup-messages
+                                                (filter #(= (name table) (:table %)))
+                                                (concat (validate-table config table)))]
+                          (log/info (count add-messages) "problems found in table" table)
+                          (if (and (not-empty add-messages) (not-empty distinct-messages))
+                            (let [table-path (-> table-details (get table) :path)
+                                  update-errors (collect-distinct-messages table-details
+                                                                           distinct-messages
+                                                                           table-path
+                                                                           add-messages)]
+                              update-errors)
+                            add-messages))))
+                 (apply concat))]
 
-         ;; Only for dev; remove later:
-         ;;(doseq [msg setup-messages]
-         ;;  (println msg))
+        (when-not (empty? messages)
+          (log/error "VALVE completed with" (count messages) "problems found!"))
 
-         (log/error "VALVE configuration completed with" (count kill-messages) "errors")
-         (doseq [msg kill-messages]
-           (println msg))
-         kill-messages)
-       (let [messages
-             (->> table-details
-                  (keys)
-                  (filter (fn [table] (not-any? #(= table %) '(:datatype :field :rule))))
-                  (map (fn [table]
-                         (log/info "Validating" table)
-                         (let [add-messages (->> setup-messages
-                                                 (filter #(= (name table) (:table %)))
-                                                 (concat (validate-table config table)))]
-                           (log/info (count add-messages) "problems found in table" table)
-                           (log/info "*********** HERE THEY ARE ************")
-                           (doseq [msg add-messages]
-                             (log/info msg))
-                           (log/info "**************************************")
-                           (if (and (not-empty add-messages) (not-empty distinct-messages))
-                             (let [table-path (-> table-details (get table) :path)
-                                   update-errors (collect-distinct-messages table-details
-                                                                            distinct-messages
-                                                                            table-path
-                                                                            add-messages)]
-                               update-errors)
-                             add-messages))))
-                  (apply concat))]
-
-         (when-not (empty? messages)
-           (log/error "VALVE completed with" (count messages) "problems found!"))
-
-         messages))))
-
-  ([paths distinct-messages row-start]
-   (validate paths {} nil distinct-messages row-start)))
+        messages))))

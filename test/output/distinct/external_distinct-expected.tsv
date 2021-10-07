@@ -1,0 +1,5 @@
+ID	Label	Type	Parent	Material Basis
+DOID:12206	dengue hemorrhagic fever	owl:Class	disease	Degue virus
+EX:IE_1	exposure process	owl:Class	process	
+ONTIE:0003317	occurrence of infectious disease	owl:Class	occurrence of disease	
+ONTIE:0003317	occurrence of cancer	owl:Class	occurrence of disease	
