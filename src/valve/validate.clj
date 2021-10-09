@@ -1,8 +1,6 @@
 (ns valve.validate
   (:require [clojure.data.csv :as csv]
             [clojure.java.io :as io]
-            ;; TODO: pprint is used for debugging during dev. Remove this dependency later.
-            [clojure.pprint :refer [pprint]]
             [clojure.set :refer [rename-keys]]
             [clojure.spec.alpha :as spec]
             [clojure.string :as string]
@@ -14,7 +12,7 @@
             [valve.spec]))
 
 (defn idx-to-a1
-  "TODO: Insert docstring here"
+  "Converts a row and column number to A1 notation"
   [row col]
   (loop [div col
          column-label ""]
@@ -31,7 +29,9 @@
         (recur div column-label)))))
 
 (defn error
-  "TODO: Add docstring here"
+  "Given a configuration map, a table name, a column name, a row index, an error message,
+  and, optionally, an error level and a suggestion, build an error message map. If the error level
+  is not given it defaults to ERROR."
   [{:keys [config table column row-idx message level suggestion]
     :or {level "ERROR"}}]
   (let [row-start (:row-start config)
@@ -52,7 +52,7 @@
       err)))
 
 (defn parsed-to-str
-  "TODO: Insert docstring here"
+  "Given a configuration map and a parsed condition, convert the condition back to a string."
   [config condition]
   (let [cond-type (:type condition)]
     (cond
@@ -96,7 +96,9 @@
       (throw (Exception. (str "Unknown condition type: " cond-type))))))
 
 (defn update-message
-  "TODO: Add docstring here"
+  "Given a configuration map, a table name, a column name, a row index, a parsed condition, a value,
+  and an error message template, use the table name, column name, row index, parsed condition, and
+  value to fill in the corresponding fields in the template, and return it."
   [config table column row-idx condition value message]
   (-> message
       (string/replace #"\{table\}" table)
@@ -106,9 +108,11 @@
       (string/replace #"\{value\}" value)))
 
 (defn check-arg
-  "TODO: Add docstring here"
+  "Given a config map, a table name, an arg to check, and the expected format of the arg, check
+  whether the arg corresponds to the expected format."
   [config table arg expected]
   (cond
+    ;; We expect a disjunction:
     (.contains expected " or ")
     (let [;; Remove optional parentheses:
           expected (string/replace expected #"^\(|\)$" "")
@@ -136,6 +140,7 @@
                      errors
                      true))))))
 
+    ;; We expect a named argument:
     (string/starts-with? expected "named:")
     (let [narg (subs expected 6)]
       (cond (not= (:type arg) "named-arg")
@@ -144,6 +149,7 @@
             (not= (:key arg) narg)
             (str "named argument must be '" narg "'")))
 
+    ;; We expect a column in the given table:
     (= expected "column")
     (cond (not= (:type arg) "string")
           (str "value must be a string representing a column in '" table "'")
@@ -153,6 +159,7 @@
                              %)))
           (str "'" (:value arg) "' must be a column in '" table "'"))
 
+    ;; We expect an expression:
     (= expected "expression")
     (cond (not-any? #(= (:type arg) %) '("function" "string"))
           (str "value must be a function or datatype")
@@ -162,10 +169,12 @@
                                (-> arg :value (keyword)))))
           (str "'" (:value arg) "' must be a defined datatype"))
 
+    ;; We expect either a field or a string:
     (some #(= expected %) '("field" "string"))
     (when (not= (:type arg) expected)
       (str "value must be a " expected))
 
+    ;; We expect some sort of regex:
     (or (= expected "regex-sub") (= expected "regex-match"))
     (cond (not= (:type arg) "regex")
           (str "value must be a regex pattern")
@@ -182,7 +191,9 @@
     (str "Unknown argument type: " expected)))
 
 (defn check-args
-  "TODO: Add docstring here"
+  "Given a config map, a function represented as a map, a table name, a column name, and a condition
+  name, and a list of args, check the list of args using the function's defined check, which can
+  either be another function, or a list of expected types."
   [config function args table column condition-name]
   (let [check (:check function)]
     (cond
@@ -191,6 +202,7 @@
       (do)
 
       (fn? check)
+      ;; The funtion's associated check is another function:
       (check config table column args)
 
       (not (vector? check))
@@ -205,7 +217,8 @@
              add-msg ""
              break? false]
         (if (or (not e) break?)
-          ;; If there are no more elements to check:
+          ;; If there are no more expected types to check, then if there are errors,
+          ;; return an error srting describing them; otherwise return nothing:
           (let [error-str (->> errors
                                (#(if (< (+ i allowed-args) (count args))
                                    (conj % (str "expects " i " argument(s), "
@@ -215,7 +228,7 @@
             (when-not (empty? error-str)
               (str condition-name " " error-str)))
 
-          ;; Otherwise ... TODO: add comment here.
+          ;; Otherwise consider the next expected type:
           (cond
             ;; Zero or more:
             (string/ends-with? e "*")
@@ -252,11 +265,14 @@
                           (if (first check)
                             [(+ i 1) allowed-args errors (first check) (drop 1 check)
                              (str " or " err) false]
+                            ;; If there are no other expected types, add the error to the list of
+                            ;; errors and break:
                             [i allowed-args (conj errors
                                                   (str "optional argument " (+ idx 1) " "
                                                        err add-msg))
                              e check add-msg true]))))]
               (if (<= (count args) i)
+                ;; This is fine in the zero or one case; simply break out of the loop:
                 (recur i
                        allowed-args
                        errors
@@ -290,6 +306,7 @@
                               (if err
                                 (if (first check)
                                   [idx allowed-args errors e check (str " or " err) true]
+                                  ;; Add the error if there are no more expected args:
                                   (recur (+ idx 1)
                                          add-msg
                                          (conj errors (str "argument "
@@ -342,7 +359,8 @@
                        false)))))))))
 
 (defn check-function
-  "TODO: Add docstring here"
+  "Given a config map, a table name, a column name, and a parsed function, check that the function
+  is recogised, that its args correspond to the spec, and that each arg is valid."
   [config table column parsed]
   (let [function-name (:name parsed)
         function (-> (:functions config)
@@ -351,7 +369,6 @@
 
         validate-args
         (fn []
-          ;; TODO: Add comment here
           (doseq [arg args]
             (cond
               (= (:type arg) "function")
@@ -385,7 +402,8 @@
       (spec/explain-str :valve.spec.function/args args))))
 
 (defn validate-datatype
-  "TODO: Add docstring here"
+  "Given a config map, a parsed condition, a table name, a column name, a row index, and a value,
+  determine whether the value is of the datatype specified by the condition."
   [config condition table column row-idx value]
   (letfn [(find-ancestors [datatypes datatype]
             (let [parent (-> datatypes (get (keyword datatype)) :parent)]
@@ -417,23 +435,22 @@
               (when match
                 (if (->> value (re-find match) (not))
                   (let [replace (:replace datatype)
-                        suggestion (when-not (empty? replace)
-                                     (-> replace
-                                         ;; TODO: Using string/split in this naive way is not good
-                                         ;; because we migth have a string like, e.g.,
-                                         ;; s/akjhakjds\\/asdasd/ffasd/g
-                                         ;; i.e., note the escaped forward slash.
-                                         ;; But it is ok for now.
-                                         (string/split #"/")
-                                         ((fn [[_ pattern replacement]]
-                                            (string/replace value pattern replacement)))))]
+                        suggestion
+                        (when-not (empty? replace)
+                          (->> replace
+                               (re-matches
+                                #"s/(.+[^\\]|.*(?<!/)/.*[^\\])/(.+[^\\]|.*(?<!/)/.*[^\\])/(.*)")
+                               ((fn [[_ pattern replacement]]
+                                  (string/replace value pattern replacement)))))]
                     (-> (error {:config config :table table :column column :row-idx row-idx
                                 :message message :level level :suggestion suggestion})
                         (vector)))
                   (recur (drop 1 ancestors)))))))))))
 
 (defn validate-condition
-  "TODO: Add docstring here"
+  "Given a config map, a parsed condition, a table name, a column name, a row index, a condition
+  to validate, and an option message to use to override the default error message, run validation
+  on the condition."
   ([config condition table column row-idx value message]
    (cond
      (= (:type condition) "function")
@@ -452,7 +469,9 @@
    (validate-condition config condition table column row-idx value nil)))
 
 (defn parse-condition
-  "TODO: Insert docstring here"
+  "Given a config map, a table name, a column name, and an unparsed condition, parse the condition,
+  and return an ordered pair where the first entry is either a successfully parsed condition or nil,
+  and the second entry is an error message (in the case of an unsuccessful parse) or nil."
   [config table column condition]
   (let [parsed (parse condition)]
     (cond
@@ -471,14 +490,16 @@
       [nil, (str "Invalid condition '" condition "'")])))
 
 (defn build-condition
-  "TODO: Insert docstring here"
+  "Given a config map, a table name, a column name, and an unparsed condition: parse the condition
+  and return it if the parsing was successful, or throw an exception otherwise."
   [config table column condition]
   (let [[parsed err] (parse-condition config table column condition)]
     (when err (throw (Exception. err)))
     parsed))
 
 (defn check-config-contents
-  "TODO: Add docstring here"
+  "Given a config map, a table name, a mapping of column names to conditions, and a number of
+  table rows: parse the given conditions and then use them to validate the given rows."
   [config table conditions rows]
   (let [parsed-conditions (->> conditions
                                (seq)
@@ -501,7 +522,9 @@
     messages))
 
 (defn get-tree-options
-  "TODO: Add docstring here"
+  "Given a parsed tree function, validate its arguments and return an ordered pair. The ordered
+  pair's first entry is a map of options associated with the tree or nil in the case of a
+  validation error, and an error message or nil in the case of a successful validation."
   [tree-function]
   (let [args (:args tree-function)]
     (cond
@@ -540,7 +563,10 @@
                           " must be a table.column pair or split=CHAR")]))))))))
 
 (defn build-tree
-  "TODO: Add docstring here"
+  "Given a config map, a row index for the tree function in the field table, a table name,
+  the name of the column containing the 'Parent' values, the name of the column containing the
+  'Child' values, an optional name of a tree to add to, and a character to split parent values on,
+  return an ordered pair consisting of a map of child->parents, and a list of errors (if any)."
   ([config fn-row-idx table-name parent-column child-column add-tree-name split-char]
    (let [table-details (:table-details config)
          row-start (:row-start config)
@@ -553,10 +579,11 @@
          allowed-values (->> rows
                              (map #(get % (keyword child-column)))
                              (concat (keys tree)))
+         ;; `split-char` does not necessarily need to be a single char:
+         split-char-len (count split-char)
          split-raw (fn [token split-char]
                      ;; Clojure doesn't provide a function for splitting a string other than with
                      ;; a regular expression, so we implement it ourselves:
-                     ;; TODO: allow for `split-char` to have length > 1
                      (if-not split-char
                        [token]
                        (loop [token token
@@ -566,8 +593,7 @@
                                                       (count token)
                                                       end-index))]
                            (if (not= end-index -1)
-                             ;; CHANGE (+ 1 to (+ (count split-char) (but don't re-evaluate every time)
-                             (recur (subs token (+ 1 end-index) (count token))
+                             (recur (subs token (+ split-char-len end-index) (count token))
                                     (conj results result))
                              (conj results result))))))]
 
@@ -623,7 +649,8 @@
    (build-tree config fn-row-idx table-name parent-column child-column nil "|")))
 
 (defn get-table-details
-  "TODO: Insert docstring here"
+  "Given a list of filesystem paths, and the row number that the contents to validate begin on,
+  build a dictionary containing the details of the tables specified on those paths."
   ([paths row-start]
    (->> paths
         (map (fn [path]
@@ -662,16 +689,15 @@
    (get-table-details paths 2)))
 
 (defn validate-table
-  "TODO: Insert docstring here"
-  ;; Note: `table` is a keyword.
-  [config table]
-  (let [table-name (name table)
+  "Given a config map and a keywordized table name, validate the table."
+  [config table-key]
+  (let [table-name (name table-key)
         table-details (:table-details config)
-        fields (merge (-> config :table-fields (get table {}))
+        fields (merge (-> config :table-fields (get table-key {}))
                       (-> config :table-fields (get :* {})))
-        rules (merge (-> config :table-rules (get table {}))
+        rules (merge (-> config :table-rules (get table-key {}))
                      (-> config :*))
-        rows (-> table-details table :rows)
+        rows (-> table-details table-key :rows)
 
         check-for-field-type
         (fn [field value row-idx]
@@ -689,6 +715,7 @@
 
         check-for-rules
         (fn [field value row-idx row]
+          ;; Check if the value meets any of the conditions.
           (when (and (not-empty rules) (contains? rules field))
             (->> rules
                  field
@@ -697,6 +724,7 @@
                               messages (validate-condition config whencond table-name field
                                                            row-idx value)]
                           (when (empty? messages)
+                            ;; The 'when' value meets the condition; now validate the 'then' value:
                             (let [thencol (:column rule)
                                   thenval (or (get row (keyword thencol))
                                               "")
@@ -732,7 +760,10 @@
          (#(or % '())))))
 
 (defn collect-distinct-messages
-  "TODO: Insert docstring here"
+  "Giving a map containing table details, an output directory to write distinct messages to,
+  a path to a table with messages, and all of the messages from the table, write the rows with
+  distinct messages to a new table and return the distinct messages with updated locations in the
+  new table."
   [table-details output-dir table messages]
   (let [distinct-messages (->> messages
                                (map #(assoc {} (-> % :message (keyword))
@@ -797,7 +828,9 @@
 
 ;; Builtin validate functions
 (defn validate-any
-  "TODO: Insert docstring here"
+  "Given a config map, the arguments provided to 'any', a table name, a column name, a row index,
+  the value to run 'any' on, and an optional message used to override the default error message,
+  validate the given args."
   ([config args table column row-idx value message]
    (let [conditions
          (loop [remaining-args args
@@ -832,7 +865,9 @@
    (validate-any config args table column row-idx value nil)))
 
 (defn validate-concat
-  "TODO: Insert docstring here"
+  "Given a config map, the arguments provided to 'concat', a table name, a column name, a row index,
+  the value to run 'concat' on, and an optional message used to override the default error message,
+  validate the given args."
   ([config args table column row-idx value message]
    (let [datatypes (:datatypes config)
          [validate-conditions
@@ -921,7 +956,9 @@
    (validate-concat config args table column row-idx value nil)))
 
 (defn validate-distinct
-  "TODO: Insert docstring here"
+  "Given a config map, the arguments provided to 'distinct', a table name, a column name, a row
+  index, the value to run 'distinct' on, and an optional message used to override the default error
+  message, validate the given args."
   ([config args table column row-idx value message]
    (let [get-indexes (fn [seekwence item]
                        ;; 'sequence' is a reserved word in clojure.
@@ -982,7 +1019,9 @@
    (validate-distinct config args table column row-idx value nil)))
 
 (defn validate-in
-  "TODO: Insert docstring here"
+  "Given a config map, the arguments provided to 'in', a table name, a column name, a row index,
+  the value to run 'in' on, and an optional message used to override the default error message,
+  validate the given args."
   ([config args table column row-idx value message]
    (let [table-details (:table-details config)
          last-arg (last args)
@@ -1043,7 +1082,9 @@
    (validate-in config args table column row-idx value nil)))
 
 (defn validate-list
-  "TODO: Insert docstring here"
+  "Given a config map, the arguments provided to 'list', a table name, a column name, a row index,
+  the value to run 'list' on, and an optional message used to override the default error message,
+  validate the given args."
   ([config args table column row-idx value message]
    (let [split-char-pre (-> args (first) :value)
          ;; This is a bit hacky, perhaps (i.e., taking the enclosing quotes away like this):
@@ -1064,7 +1105,9 @@
    (validate-list config args table column row-idx value nil)))
 
 (defn validate-lookup
-  "TODO: Insert docstring here"
+  "Given a config map, the arguments provided to 'lookup', a table name, a column name, a row
+  index, the value to run 'lookup' on, and an optional message used to override the default error
+  message, validate the given args."
   ([config args table column row-idx value message]
    (let [table-details (:table-details config)
          table-rules (-> config :table-rules (get (keyword table)))
@@ -1124,7 +1167,9 @@
    (validate-lookup config args table column row-idx value nil)))
 
 (defn validate-sub
-  "TODO: Insert docstring here"
+  "Given a config map, the arguments provided to 'sub', a table name, a column name, a row index,
+  the value to run 'sub' on, and an optional message used to override the default error message,
+  validate the given args."
   ([config args table column row-idx value message]
    ;; Note that we assume, as input, perl-style syntax.
    (let [regex (first args)
@@ -1148,7 +1193,9 @@
    (validate-sub config args table column row-idx value nil)))
 
 (defn validate-not
-  "TODO: Insert docstring here"
+  "Given a config map, the arguments provided to 'not', a table name, a column name, a row index,
+  the value to run 'not' on, and an optional message used to override the default error message,
+  validate the given args."
   ([config args table column row-idx value message]
    (loop [remaining-args args]
      (let [arg (first remaining-args)]
@@ -1172,8 +1219,10 @@
   ([config args table column row-idx value]
    (validate-not config args table column row-idx value nil)))
 
-(defn has-ancestor
-  "TODO: Insert docstring here"
+(defn has-ancestor?
+  "Given a tree map, a node, check whether the node has an ancestor in the tree. If direct? is set
+  to true, only look at direct parents, not full ancestors. Return true if the node has the given
+  ancestor or false otherwise."
   ([tree ancestor node direct?]
    (let [folks (get tree (keyword node))
          ;; One could (perhaps) argue that replacing enclosing quotes in this way is hacky ...
@@ -1197,15 +1246,17 @@
          (let [folk (first remaining-folks)]
            (if-not folk
              false
-             (if (has-ancestor tree ancestor folk)
+             (if (has-ancestor? tree ancestor folk)
                true
                (recur (drop 1 remaining-folks)))))))))
 
   ([tree ancestor node]
-   (has-ancestor tree ancestor node false)))
+   (has-ancestor? tree ancestor node false)))
 
 (defn validate-under
-  "TODO: Insert docstring here"
+  "Given a config map, the arguments provided to 'under', a table name, a column name, a row index,
+  the value to run 'under' on, and an optional message used to override the default error message,
+  validate the given args."
   ([config args table column row-idx value message]
    (let [trees (:trees config)
          table-name (-> args (first) :table)
@@ -1221,7 +1272,7 @@
            direct? (boolean
                     (when (= (count args) 3)
                       (-> args (nth 2) :value (string/lower-case) (= "true"))))]
-       (if (has-ancestor tree ancestor value direct?)
+       (if (has-ancestor? tree ancestor value direct?)
          []
          (let [message (if-not (empty? message)
                          (update-message config table column row-idx {:type "function"
@@ -1241,7 +1292,8 @@
 
 ;; Builtin check functions:
 (defn check-lookup
-  "TODO: Insert docstring here"
+  "Given a config map, a table name, a column name, and a list of args passed to the lookup
+  function, check the given args, returning nothing on success or an error message otherwise."
   [config table column args]
   (loop [break? false
          errors []
@@ -1294,6 +1346,7 @@
           (when-not (empty? errors)
             (->> errors (string/join "; ") (str "lookup "))))))))
 
+;; Builtin datatypes
 (def default-datatypes
   {:blank {:datatype "blank"
            :parent ""
@@ -1312,6 +1365,7 @@
                :match #"^s/.+[^\\]|.*(?<!/)/.*[^\\]/.+[^\\]|.*(?<!/)/.*[^\\]/.*$"
                :level "ERROR"}})
 
+;; Builtin functions
 (def default-functions
   {:any {"usage" "any(expression+)"
          "check" ["expression+"]
@@ -1344,6 +1398,7 @@
            "check" ["field" "string" "named:direct?"]
            "validate" validate-under}})
 
+;; Builtin conditions
 (def datatype-conditions
   [[:datatype "datatype-label"],
    [:parent "any(blank, in(datatype.datatype))"]
@@ -1365,7 +1420,9 @@
    [:level "any(blank, in(\"ERROR\", \"error\", \"WARN\", \"warn\", \"INFO\", \"info\"))"]])
 
 (defn check-custom
-  "TODO: Insert docstring here"
+  "Given the function name of a custom function, its corresponding details, and the namespace that
+  the function has been defined with respect to, check that it has been validly specified and raise
+  an exception if there are any problems."
   [[func-name details custom-namespace]]
   (when (contains? default-functions func-name)
     (throw (Exception.
@@ -1405,7 +1462,9 @@
     [func-name details]))
 
 (defn check-rows
-  "TODO: Insert docstring here"
+  "Given a config map, a spec to use for validation, a table name, a list of rows, and a start row,
+  check that the rows conform to the spec, returning nothing on success and a list of error messages
+  otherwise."
   [config spec table rows row-start]
   ;; Returns a list of error messages
   (->> rows
@@ -1443,7 +1502,8 @@
        (flatten)))
 
 (defn configure-datatypes
-  "TODO: Add docstring here"
+  "Given a config map, a list of messages, and a start row, add datatypes to the given config, add
+  any error messages encountered to the given error messages, and return them both."
   [[config messages] row-start]
   (let [datatype (or (-> config :table-details :datatype)
                      (throw (Exception. "Missing table 'datatype'")))
@@ -1478,7 +1538,8 @@
           [config messages])))))
 
 (defn configure-rules
-  "TODO: Add docstring here"
+  "Given a config map, a list of messages, and a start row, add rules to the given config, add
+  any error messages encountered to the given error messages, and return them both."
   [[config messages] row-start]
   (if-not (-> config :table-details (contains? :rule))
     ;; Rule table is optional. If it is not present just return the config and error messages
@@ -1580,7 +1641,8 @@
                              messages))))))))))))
 
 (defn configure-fields
-  "TODO: Add docstring here"
+  "Given a config map, a list of messages, and a start row, add fields to the given config, add
+  any error messages encountered to the given error messages, and return them both."
   [[config messages] row-start]
   (when-not (-> config :table-details (contains? :field))
     (throw (Exception. "missing table 'field'")))
@@ -1702,7 +1764,7 @@
                          row-idx trees table-fields config messages))))))))))
 
 (defn check-for-duplicates
-  "TODO: Insert docstring here"
+  "Verify that the given list of paths do not contain any duplicate table names."
   [fixed-paths]
   (when-not (->> fixed-paths
                  (map #(string/split % #"/"))
@@ -1714,7 +1776,9 @@
   fixed-paths)
 
 (defn validate
-  "TODO: Insert docstring here"
+  "Given a list of paths, an optional list of custom functions to use for validation, the namespace
+  under which the custom functions are defined, a path to a directory to write distinct error
+  messages to, and a start row, run VALVE validation over the list of paths."
   [{:keys [paths custom-functions custom-namespace distinct-messages row-start]
     :or {row-start 2}}]
   (when (and custom-functions
