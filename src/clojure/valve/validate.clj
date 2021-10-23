@@ -5,11 +5,14 @@
             [clojure.spec.alpha :as spec]
             [clojure.string :as string]
             [clojure.walk :refer [keywordize-keys]]
+            [next.jdbc :as jdbc]
             [valve.log :as log]
             [valve.parse :refer [parse]]
             ;; We need to load this dependency, even if we never explicitly reference it, in order
             ;; to bring the :valve.spec/... namespaces into scope.
-            [valve.spec]))
+            [valve.spec])
+  (:import [valve Sqlite])
+  (:gen-class))
 
 (defn idx-to-a1
   "Converts a row and column number to A1 notation"
@@ -1775,6 +1778,13 @@
             (str "Input paths: " (vec fixed-paths) " contain duplicate table names"))))
   fixed-paths)
 
+(def db
+  {:dbtype "sqlite"
+   :dbname "db/database.db"})
+
+(def conn
+  (-> db (jdbc/get-datasource) (jdbc/get-connection)))
+
 (defn validate
   "Given a list of paths, an optional list of custom functions to use for validation, the namespace
   under which the custom functions are defined, a path to a directory to write distinct error
@@ -1828,27 +1838,33 @@
       (do
         (log/error "VALVE configuration completed with" (count kill-messages) "errors")
         kill-messages)
-      (let [messages
-            (->> table-details
-                 (keys)
-                 (filter (fn [table] (not-any? #(= table %) '(:datatype :field :rule))))
-                 (map (fn [table]
-                        (log/info "Validating" table)
-                        (let [add-messages (->> setup-messages
-                                                (filter #(= (name table) (:table %)))
-                                                (concat (validate-table config table)))]
-                          (log/info (count add-messages) "problems found in table" table)
-                          (if (and (not-empty add-messages) (not-empty distinct-messages))
-                            (let [table-path (-> table-details (get table) :path)
-                                  update-errors (collect-distinct-messages table-details
-                                                                           distinct-messages
-                                                                           table-path
-                                                                           add-messages)]
-                              update-errors)
-                            add-messages))))
-                 (apply concat))]
+      (do
+        ;; Create user-defined regexp function:
+        (. Sqlite (createRegexMatchesFunc conn))
+        (-> table-details (keys) (println))))))
 
-        (when-not (empty? messages)
-          (log/error "VALVE completed with" (count messages) "problems found!"))
 
-        messages))))
+;;      (let [messages
+;;            (->> table-details
+;;                 (keys)
+;;                 (filter (fn [table] (not-any? #(= table %) '(:datatype :field :rule))))
+;;                 (map (fn [table]
+;;                        (log/info "Validating" table)
+;;                        (let [add-messages (->> setup-messages
+;;                                                (filter #(= (name table) (:table %)))
+;;                                                (concat (validate-table config table)))]
+;;                          (log/info (count add-messages) "problems found in table" table)
+;;                          (if (and (not-empty add-messages) (not-empty distinct-messages))
+;;                            (let [table-path (-> table-details (get table) :path)
+;;                                  update-errors (collect-distinct-messages table-details
+;;                                                                           distinct-messages
+;;                                                                           table-path
+;;                                                                           add-messages)]
+;;                              update-errors)
+;;                            add-messages))))
+;;                 (apply concat))]
+;;
+;;        (when-not (empty? messages)
+;;          (log/error "VALVE completed with" (count messages) "problems found!"))
+;;
+;;        messages))))
