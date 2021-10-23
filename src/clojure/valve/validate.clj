@@ -1,6 +1,8 @@
 (ns valve.validate
   (:require [clojure.data.csv :as csv]
             [clojure.java.io :as io]
+            ;; Remove the pprint dependency later; it is useful for dev but not needed in prod.
+            [clojure.pprint :refer [pprint]]
             [clojure.set :refer [rename-keys]]
             [clojure.spec.alpha :as spec]
             [clojure.string :as string]
@@ -1838,11 +1840,112 @@
       (do
         (log/error "VALVE configuration completed with" (count kill-messages) "errors")
         kill-messages)
-      (do
-        ;; Create user-defined regexp function:
-        (. Sqlite (createRegexMatchesFunc conn))
-        (-> table-details (keys) (println))))))
+      (let [_ (do
+                ;; Create user-defined regexp function:
+                (. Sqlite (createRegexMatchesFunc conn))
 
+                ;; Create the message table:
+                (jdbc/execute! conn ["drop table if exists message"])
+                (jdbc/execute! conn ["
+                  CREATE TABLE message (
+                    `table` TEXT,
+                    `row` INTEGER,
+                    `column` TEXT,
+                    `level` TEXT,
+                    `rule ID` TEXT,
+                    `rule` TEXT,
+                    `message` TEXT,
+                    `suggestion` TEXT
+                  )"])
+
+                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+                ;; these will eventually be removed, since the tables will have to be stored to
+                ;; sqlite earlier in the process (likely during the configuration step above)
+                (jdbc/execute! conn ["drop table if exists prefix"])
+                (jdbc/execute! conn ["
+                   create table prefix (
+                     `prefix` text,
+                     `base` text
+                   )"])
+
+                (with-open [reader (io/reader "../valve/tests/inputs/prefix.tsv")]
+                  (let [[header & data] (doall (csv/read-csv reader :separator \tab))
+                        statements (->> data
+                                        (map (fn [row]
+                                               (str "insert into prefix values ('"
+                                                    (string/join "', '" row)
+                                                    "')"))))]
+                    (doseq [statement statements]
+                      (jdbc/execute! conn [statement])))))
+                ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+            tables-to-validate (->> table-details
+                                    (keys)
+                                    (filter (fn [table] (not-any? #(= table %)
+                                                                  '(:datatype :field :rule)))))
+            prefix-fields (-> table-details :prefix :fields)
+            table-to-validate :prefix
+            field-to-validate :base]
+
+        (log/debug "For now we are only going to validate the" table-to-validate
+                   "table but eventually we will want to validate all of these:"
+                   (vec tables-to-validate))
+        (log/debug "For now we are only going to validate the" field-to-validate "field from the"
+                   table-to-validate "table but eventually we are going to want to validate all"
+                   "of these:" (vec prefix-fields))
+
+        (letfn [(include-parent-datatypes [datatype]
+                  (let [parent (:parent datatype)]
+                    (if (or (not parent) (= parent "string"))
+                      [datatype]
+                      (into [datatype]
+                            (->> table-details :datatype :rows
+                                 (filter #(-> (:datatype %) (= parent)))
+                                 (remove nil?)
+                                 (first)
+                                 (include-parent-datatypes))))))]
+
+          (let [condition (->> table-details :field :rows
+                               (filter #(and (-> (:table %) (= (name table-to-validate)))
+                                             (-> (:column %) (= (name field-to-validate)))))
+                               (first)
+                               :condition)
+                datatypes-to-match (->> table-details :datatype :rows
+                                        (filter #(-> (:datatype %) (= condition)))
+                                        (first)
+                                        (include-parent-datatypes))
+                sql-statements (->> datatypes-to-match
+                                    (map
+                                     #(format
+                                       (str
+                                        "WITH checking(`table`, `row`, `column`, `value`) AS ( "
+                                        " SELECT '%s', rowid, '%s', `%s` from `%s` "
+                                        ") "
+                                        "INSERT INTO `message` "
+                                        "SELECT "
+                                        " `table`, "
+                                        " `row`, "
+                                        " `column`, "
+                                        " '%s', " ;; level
+                                        " '%s', "  ;; rule-id
+                                        " '%s', "  ;; rule
+                                        " 'The value of ' || `value` || ' must be %s', " ;; message
+                                        " '%s' "  ;; suggestion
+                                        "FROM checking "
+                                        "WHERE regexp_matches(`value`, '%s')")
+                                       (name table-to-validate)
+                                       (name field-to-validate)
+                                       (name field-to-validate)
+                                       (name table-to-validate)
+                                       (:level %)
+                                       (str "datatype:" (:datatype %))
+                                       (str "Failed check for " (:datatype %))
+                                       (:description %)
+                                       (or (:suggestion %) "")
+                                       (:match %))))]
+            (doseq [sql-statement sql-statements]
+              (log/debug "Executing:" sql-statement)
+              (jdbc/execute! conn [sql-statement]))))))))
 
 ;;      (let [messages
 ;;            (->> table-details
