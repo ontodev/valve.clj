@@ -6,6 +6,13 @@ import java.util.regex.Pattern;
 import org.sqlite.Function;
 
 public class Sqlite {
+  public static void createRegexReplaceFunc(Connection conn) throws SQLException {
+    Function.create(conn, "regexp_replace", new Function() {
+        protected void xFunc() throws SQLException {
+        }
+      });
+  }
+
   public static void createRegexMatchesFunc(Connection conn) throws SQLException {
     Function.create(conn, "regexp_matches", new Function() {
         protected void xFunc() throws SQLException {

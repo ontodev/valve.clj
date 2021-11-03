@@ -1844,6 +1844,11 @@
                 ;; Create user-defined regexp function:
                 (. Sqlite (createRegexMatchesFunc conn))
 
+                ;; Create regexp_replace:
+                (. Sqlite (createRegexReplaceFunc conn))
+                (let [result (jdbc/execute! conn ["select regexp_replace()"])]
+                  (println result))
+
                 ;; Create the message table:
                 (jdbc/execute! conn ["drop table if exists message"])
                 (jdbc/execute! conn ["
@@ -1875,6 +1880,32 @@
                                                (str "insert into prefix values ('"
                                                     (string/join "', '" row)
                                                     "')"))))]
+                    (doseq [statement statements]
+                      (jdbc/execute! conn [statement]))))
+
+                (jdbc/execute! conn ["drop table if exists external"])
+                (jdbc/execute! conn ["
+                   create table external (
+                     `ID` text,
+                     `Label` text,
+                     `Type` text,
+                     `Parent` text,
+                     `Material Basis` text
+                   )"])
+
+                (with-open [reader (io/reader "../valve/tests/inputs/external.tsv")]
+                  (let [[header & data] (doall (csv/read-csv reader :separator \tab))
+                        statements (->> data
+                                        (map (fn [row]
+                                               (let [row (cond (= 5 (count row))
+                                                               row
+                                                               (= 4 (count row))
+                                                               (into row [nil])
+                                                               (= 3 (count row))
+                                                               (into row [nil nil]))]
+                                                 (str "insert into external values ('"
+                                                      (string/join "', '" row)
+                                                      "')")))))]
                     (doseq [statement statements]
                       (jdbc/execute! conn [statement])))))
                 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
